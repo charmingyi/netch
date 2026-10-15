@@ -132,13 +132,17 @@ public static class Socks5ServerTestUtils
         }
 
         var errors = new List<string>();
-        foreach (var (stunServer, port) in candidates.Take(3))
+        // Try every configured fallback. A STUN endpoint can resolve successfully
+        // but lack RFC 5780 behavior tests, while another server in the list works.
+        foreach (var (stunServer, port) in candidates)
         {
             ctx.ThrowIfCancellationRequested();
+            Log.Debug("Testing NAT through STUN server {StunServer}:{Port}", stunServer, port);
             var ip = await DnsUtils.LookupAsync(stunServer);
             if (ip == null)
             {
                 errors.Add($"{stunServer}: DNS lookup failed");
+                Log.Debug("Skipping STUN server {StunServer}: DNS lookup failed", stunServer);
                 continue;
             }
 
@@ -183,6 +187,7 @@ public static class Socks5ServerTestUtils
             if (res.BindingTestResult != BindingTestResult.Success)
             {
                 errors.Add($"{stunServer}: binding test {res.BindingTestResult}");
+                Log.Debug("STUN server {StunServer} did not complete the binding test: {BindingTestResult}", stunServer, res.BindingTestResult);
                 continue;
             }
 

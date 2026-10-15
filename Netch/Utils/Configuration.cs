@@ -88,6 +88,14 @@ public static class Configuration
 
         settings.AioDNS.ChinaDNS = DnsUtils.AppendPort(settings.AioDNS.ChinaDNS);
         settings.AioDNS.OtherDNS = DnsUtils.AppendPort(settings.AioDNS.OtherDNS);
+
+        // Syncthing retired this STUN hostname; it now resolves to a documentation
+        // address and cannot be used for public NAT discovery.
+        if (string.Equals(settings.STUN_Server, "stun.syncthing.net", StringComparison.OrdinalIgnoreCase))
+        {
+            settings.STUN_Server = "stun.miwifi.com";
+            settings.STUN_Server_Port = 3478;
+        }
     }
 
     /// <summary>

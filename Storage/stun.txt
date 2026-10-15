@@ -1,5 +1,6 @@
-stun.qq.com
-stun.bige0.com
 stun.miwifi.com
-stun.syncthing.net
+stun.chat.bilibili.com
+stun.qq.com
+stun.hitv.com
+stun.cloudflare.com
 stun.stunprotocol.org
