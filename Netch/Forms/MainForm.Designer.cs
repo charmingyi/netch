@@ -531,12 +531,7 @@
             this.UsedBandwidthLabel,
             this.DownloadSpeedLabel,
             this.UploadSpeedLabel,
-            this.blankToolStripStatusLabel,
-            this.HttpStatusLabel,
-            this.NatTypeStatusLabel,
-            this.NatTypeStatusLightLabel,
-            this.GameNetworkStatusLabel});
-            this.StatusStrip.Location = new System.Drawing.Point(0, 272);
+            this.blankToolStripStatusLabel});
             this.StatusStrip.Name = "StatusStrip";
             this.StatusStrip.Size = new System.Drawing.Size(740, 22);
             this.StatusStrip.SizingGrip = false;

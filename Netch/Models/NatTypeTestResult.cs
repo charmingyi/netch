@@ -8,4 +8,5 @@ public struct NatTypeTestResult
     public string? MappingBehavior;
     public string? FilteringBehavior;
     public string? BindingTestResult;
+    public string? FailureDetails;
 }

@@ -111,9 +111,24 @@ public static class Socks5ServerTestUtils
     {
         var proxyAddress = await DnsUtils.LookupAsync(socks5.Hostname);
         if (proxyAddress == null)
-            return new NatTypeTestResult { Result = $"Cannot resolve proxy host: {socks5.Hostname}" };
+            return new NatTypeTestResult
+            {
+                Result = "Unknown",
+                BindingTestResult = "Not started",
+                FailureDetails = $"Cannot resolve proxy host: {socks5.Hostname}"
+            };
 
-        var candidates = new List<(string Host, ushort Port)> { (Global.Settings.STUN_Server, (ushort)Global.Settings.STUN_Server_Port) };
+        var configuredPort = Global.Settings.STUN_Server_Port is > 0 and <= ushort.MaxValue
+            ? (ushort)Global.Settings.STUN_Server_Port
+            : (ushort)3478;
+        // voipgate.com is the default endpoint used by the maintained pion STUN
+        // behavior-discovery tool; it supports the alternate-address tests this
+        // NAT classifier needs. Several common WebRTC STUN hosts only do binding.
+        var candidates = new List<(string Host, ushort Port)>
+        {
+            ("stun.voipgate.com", 3478),
+            (Global.Settings.STUN_Server, configuredPort)
+        };
         try
         {
             foreach (var line in File.ReadLines(Constants.STUNServersFile))
@@ -132,13 +147,16 @@ public static class Socks5ServerTestUtils
         }
 
         var errors = new List<string>();
+        NatTypeTestResult? basicBindingResult = null;
         // Try every configured fallback. A STUN endpoint can resolve successfully
         // but lack RFC 5780 behavior tests, while another server in the list works.
         foreach (var (stunServer, port) in candidates)
         {
             ctx.ThrowIfCancellationRequested();
             Log.Debug("Testing NAT through STUN server {StunServer}:{Port}", stunServer, port);
-            var ip = await DnsUtils.LookupAsync(stunServer);
+            var ip = IPAddress.TryParse(stunServer, out var literalAddress)
+                ? literalAddress
+                : await DnsUtils.LookupAsync(stunServer, timeout: 1500);
             if (ip == null)
             {
                 errors.Add($"{stunServer}: DNS lookup failed");
@@ -166,7 +184,7 @@ public static class Socks5ServerTestUtils
                 errors.Add($"{stunServer}: timed out");
                 continue;
             }
-            catch (Exception exception) when (exception is SocketException or IOException or InvalidOperationException or TimeoutException)
+            catch (Exception exception) when (!ctx.IsCancellationRequested)
             {
                 errors.Add($"{stunServer}: {exception.Message}");
                 continue;
@@ -191,21 +209,45 @@ public static class Socks5ServerTestUtils
                 continue;
             }
 
+            var simpleResult = GetSimpleResult(res);
+            if (simpleResult == "Unknown")
+            {
+                basicBindingResult ??= new NatTypeTestResult
+                {
+                    Result = "Unknown",
+                    LocalEnd = res.LocalEndPoint?.ToString(),
+                    PublicEnd = res.PublicEndPoint?.ToString(),
+                    MappingBehavior = res.MappingBehavior.ToString(),
+                    FilteringBehavior = res.FilteringBehavior.ToString(),
+                    BindingTestResult = res.BindingTestResult.ToString()
+                };
+                errors.Add($"{stunServer}: STUN binding succeeded, but this server did not provide NAT behavior discovery data");
+                continue;
+            }
+
             return new NatTypeTestResult
             {
-                Result = GetSimpleResult(res),
+                Result = simpleResult,
                 LocalEnd = res.LocalEndPoint?.ToString(),
                 PublicEnd = res.PublicEndPoint?.ToString(),
                 MappingBehavior = res.MappingBehavior.ToString(),
                 FilteringBehavior = res.FilteringBehavior.ToString(),
-                BindingTestResult = res.BindingTestResult.ToString()
+                BindingTestResult = res.BindingTestResult.ToString(),
+                FailureDetails = null
             };
+        }
+
+        if (basicBindingResult is { } basicResult)
+        {
+            basicResult.FailureDetails = string.Join(Environment.NewLine, errors);
+            return basicResult;
         }
 
         return new NatTypeTestResult
         {
-            Result = $"Unknown (STUN failed: {string.Join("; ", errors)})",
-            BindingTestResult = "Unknown"
+            Result = "Unknown",
+            BindingTestResult = "Failed",
+            FailureDetails = string.Join(Environment.NewLine, errors)
         };
     }
 
@@ -224,7 +266,9 @@ public static class Socks5ServerTestUtils
             case (_, MappingBehavior.AddressDependent or MappingBehavior.AddressAndPortDependent, _):
                 return "3";
             case (_, MappingBehavior.Fail, _):
-                return MappingBehavior.Fail.ToString();
+                return "Unknown";
+            case (_, _, FilteringBehavior.Fail):
+                return "Unknown";
             default:
                 return res.FilteringBehavior.ToString();
         }

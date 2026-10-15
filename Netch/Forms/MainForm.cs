@@ -23,6 +23,11 @@ namespace Netch.Forms;
 public partial class MainForm : Form
 {
     private readonly ToolTip _networkMetricsToolTip = new();
+    private Label _natDiagnosticLabel = null!;
+    private Label _entryLatencyDiagnosticLabel = null!;
+    private Label _proxyDiagnosticLabel = null!;
+    private Label _gameDiagnosticLabel = null!;
+    private Button _natTestButton = null!;
     private CancellationTokenSource? _gameProbeCts;
     #region Start
 
@@ -33,6 +38,7 @@ public partial class MainForm : Form
     public MainForm()
     {
         InitializeComponent();
+        InitializeNetworkDiagnostics();
         NotifyIcon.Icon = Icon = Resources.icon;
         _networkMetricsToolTip.SetToolTip(ServerComboBox,
             "Latency and loss are measured by probing the selected proxy server. They are not game-protocol packet-loss measurements.");
@@ -51,6 +57,75 @@ public partial class MainForm : Form
         // 监听电源事件
         SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
     }
+
+    private void InitializeNetworkDiagnostics()
+    {
+        var diagnostics = new GroupBox
+        {
+            Name = "NetworkDiagnosticsGroupBox",
+            Text = "网络质量",
+            Size = new Size(709, 96),
+            Margin = new Padding(3, 3, 3, 6),
+            TabStop = false
+        };
+
+        _natDiagnosticLabel = CreateDiagnosticLabel("出口 NAT：未测试", new Point(12, 21), new Size(210, 22));
+        _entryLatencyDiagnosticLabel = CreateDiagnosticLabel("入口节点 RTT：--", new Point(325, 21), new Size(165, 22));
+        _proxyDiagnosticLabel = CreateDiagnosticLabel("代理连通性：未测试", new Point(495, 21), new Size(200, 22));
+        _gameDiagnosticLabel = CreateDiagnosticLabel("游戏全链路：未启动", new Point(12, 54), new Size(681, 30));
+        _gameDiagnosticLabel.Font = new Font(Font, FontStyle.Bold);
+        _gameDiagnosticLabel.AutoEllipsis = true;
+        _gameDiagnosticLabel.TextAlign = ContentAlignment.MiddleLeft;
+        _gameDiagnosticLabel.BackColor = SystemColors.Info;
+        _gameDiagnosticLabel.Padding = new Padding(5, 0, 5, 0);
+
+        _natTestButton = new Button
+        {
+            Name = "NatTestButton",
+            Text = "测试 NAT",
+            Location = new Point(225, 18),
+            Size = new Size(88, 25),
+            UseVisualStyleBackColor = true
+        };
+        _natTestButton.Click += NatTestButton_Click;
+
+        diagnostics.Controls.Add(_natDiagnosticLabel);
+        diagnostics.Controls.Add(_natTestButton);
+        diagnostics.Controls.Add(_entryLatencyDiagnosticLabel);
+        diagnostics.Controls.Add(_proxyDiagnosticLabel);
+        diagnostics.Controls.Add(_gameDiagnosticLabel);
+        flowLayoutPanel1.Controls.Add(diagnostics);
+        flowLayoutPanel1.Controls.SetChildIndex(diagnostics, 2);
+
+        // Keep the diagnostic area on its own rows and reserve the bottom strip for
+        // application state and bandwidth only.
+        AutoSize = false;
+        ClientSize = new Size(740, 420);
+        StatusStrip.Dock = DockStyle.Bottom;
+        StatusLabel.AutoSize = false;
+        StatusLabel.Size = new Size(280, 17);
+        StatusLabel.AutoToolTip = true;
+        StatusLabel.TextAlign = ContentAlignment.MiddleLeft;
+        _networkMetricsToolTip.SetToolTip(_natDiagnosticLabel,
+            "通过正在使用的代理出口发送 STUN 探测；这显示代理出口的 NAT 行为，不是电脑本地路由器的 NAT 类型。");
+        _networkMetricsToolTip.SetToolTip(_entryLatencyDiagnosticLabel,
+            "入口节点 RTT：直接探测所选代理节点的延迟。这个数值不是完整代理链路或游戏服务器延迟。");
+        _networkMetricsToolTip.SetToolTip(_proxyDiagnosticLabel,
+            "代理连通性：通过当前代理完成 HTTP 检查，与节点入口 RTT、游戏服务器 RTT 分开显示。");
+        _networkMetricsToolTip.SetToolTip(_gameDiagnosticLabel,
+            "游戏全链路：通过当前 SOCKS5 代理链连接从游戏 UDP 流量识别出的远端端点。TCP 建连时间不等同于游戏 UDP 协议 RTT；UDP 丢包为按包间隔估算。");
+    }
+
+    private Label CreateDiagnosticLabel(string text, Point location, Size size) => new()
+    {
+        AutoEllipsis = true,
+        Location = location,
+        Size = size,
+        Text = text,
+        TextAlign = ContentAlignment.MiddleLeft
+    };
+
+    private async void NatTestButton_Click(object? sender, EventArgs e) => await DiscoveryNatTypeAsync();
 
     private void AddAddServerToolStripMenuItems()
     {
@@ -78,6 +153,7 @@ public partial class MainForm : Form
 
         LoadServers();
         SelectLastServer();
+        RefreshEntryLatencyDiagnostic();
         DelayTestHelper.UpdateTick(true);
 
         ModeService.Instance.Load();
@@ -579,6 +655,7 @@ public partial class MainForm : Form
                 {
                     await server.PingAsync();
                     ServerComboBox.Refresh();
+                    RefreshEntryLatencyDiagnostic();
 
                     await Task.Delay(Global.Settings.StartedPingInterval * 1000);
                 }
@@ -609,8 +686,9 @@ public partial class MainForm : Form
     {
         var latencySamples = new Queue<int>();
         string? lastEndpoint = null;
-        GameNetworkStatusLabel.Visible = true;
-        GameNetworkStatusLabel.ToolTipText = "全链路探测会通过当前 SOCKS5 代理（包含入口、链路节点和落地）连接游戏实时 UDP 流量发现的服务器端点。端到端 TCP 建连时间不是游戏 UDP 协议 RTT；UDP 丢包为按入站包间隔估算，未解码游戏序号。";
+        _gameDiagnosticLabel.Text = "游戏全链路：等待游戏 UDP 流量";
+        _networkMetricsToolTip.SetToolTip(_gameDiagnosticLabel,
+            "先检测游戏进程实际收发的 UDP 流量，再通过当前 SOCKS5 代理链路连接发现的远端端点。");
 
         try
         {
@@ -619,7 +697,7 @@ public partial class MainForm : Form
                 var snapshot = GameTrafficMonitor.GetSnapshot();
                 if (snapshot == null)
                 {
-                    GameNetworkStatusLabel.Text = "游戏端点等待中";
+                    _gameDiagnosticLabel.Text = "游戏全链路：等待游戏服务器 UDP 流量";
                     await Task.Delay(1000, cancellationToken);
                     continue;
                 }
@@ -662,11 +740,11 @@ public partial class MainForm : Form
                     ? $"{estimatedLoss:0.#}%"
                     : "--";
 
-                GameNetworkStatusLabel.Text = $"全链路 {latencyText} {lossText}";
-                GameNetworkStatusLabel.ToolTipText = $"游戏：{snapshot.GameName}\n自动发现端点：{snapshot.Endpoint}\n" +
+                _gameDiagnosticLabel.Text = $"游戏全链路：{latencyText}    入站 {lossText}";
+                _networkMetricsToolTip.SetToolTip(_gameDiagnosticLabel, $"游戏：{snapshot.GameName}\n自动发现远端端点：{snapshot.Endpoint}\n" +
                     $"完整链路 TCP 建连：{latencyText}（通过当前 SOCKS5 代理，覆盖入口到落地，再到该 IP:端口；目标为游戏 UDP 流量发现的端点）。\n" +
                     $"游戏 UDP：接收 {snapshot.ReceivePacketsPerSecond} 包/秒，发送 {snapshot.SendPacketsPerSecond} 包/秒，检测到 {snapshot.ReceiveStalls} 次接收停顿；丢包≈{compactLoss}。\n" +
-                    "TCP 建连时间不能等同于游戏 UDP 协议 RTT；如果该端口只接受 UDP 或拒绝 TCP，将显示 TCP --，不会退回显示入口延迟。UDP 丢包由入站包间隔估算，未解码游戏序号，属于近似值。";
+                    "TCP 建连时间不能等同于游戏 UDP 协议 RTT；如果该端口只接受 UDP 或拒绝 TCP，将显示 TCP --，不会退回显示入口延迟。UDP 丢包由入站包间隔估算，未解码游戏序号，属于近似值。");
 
                 await Task.Delay(2000, cancellationToken);
             }
@@ -681,8 +759,7 @@ public partial class MainForm : Form
             {
                 _gameProbeCts.Dispose();
                 _gameProbeCts = null;
-                GameNetworkStatusLabel.Visible = false;
-                GameNetworkStatusLabel.Text = string.Empty;
+                _gameDiagnosticLabel.Text = "游戏全链路：未运行";
             }
         }
     }
@@ -692,11 +769,13 @@ public partial class MainForm : Form
         var samples = new Queue<int>();
         var target = mode.NetworkProbeTarget.Trim();
         var proxyProbe = TryParseProbeTarget(target, out var targetHost, out var targetPort);
-        var probeKind = proxyProbe ? "SOCKS5 TCP" : "direct ICMP";
-        GameNetworkStatusLabel.Visible = true;
-        GameNetworkStatusLabel.ToolTipText = proxyProbe
-            ? $"TCP connect probes to {target} through the active local SOCKS5 proxy. RTT and failed connects measure this probe path, not in-game UDP packets."
-            : $"Direct ICMP probes to {target}. In process mode this does not follow the game's proxy path. This is target reachability, not in-game packet loss.";
+        var probeKind = proxyProbe ? "全链路 TCP" : "目标直连 ICMP";
+        _gameDiagnosticLabel.Text = proxyProbe
+            ? $"游戏全链路：正在探测 {target}"
+            : $"目标探测：{target}（直连 ICMP，不经过代理）";
+        _networkMetricsToolTip.SetToolTip(_gameDiagnosticLabel, proxyProbe
+            ? $"TCP 连接探测通过当前 SOCKS5 代理链路到 {target}；这是端到端 TCP 建连时间，不代表游戏 UDP 协议 RTT。"
+            : $"{target} 未配置端口，使用直连 ICMP；该探测不经过代理，也不代表游戏链路延迟。请使用 Host:Port 格式配置端到端 TCP 探测目标。");
 
         try
         {
@@ -735,9 +814,9 @@ public partial class MainForm : Form
                 var successful = samples.Where(value => value >= 0).ToArray();
                 var loss = (samples.Count - successful.Length) * 100 / samples.Count;
                 var median = successful.Length == 0 ? -1 : successful.OrderBy(value => value).ElementAt(successful.Length / 2);
-                GameNetworkStatusLabel.Text = median < 0
-                    ? $"Probe {probeKind}: -- / {loss}% failed"
-                    : $"Probe {probeKind}: {median}ms / {loss}% failed";
+                _gameDiagnosticLabel.Text = median < 0
+                    ? $"游戏全链路：{probeKind} --（失败 {loss}%）"
+                    : $"游戏全链路：{probeKind} {median}ms（失败 {loss}%）";
 
                 await Task.Delay(1000, cancellationToken);
             }
@@ -752,8 +831,7 @@ public partial class MainForm : Form
             {
                 _gameProbeCts.Dispose();
                 _gameProbeCts = null;
-                GameNetworkStatusLabel.Visible = false;
-                GameNetworkStatusLabel.Text = string.Empty;
+                _gameDiagnosticLabel.Text = "游戏全链路：未运行";
             }
         }
     }
@@ -833,6 +911,21 @@ public partial class MainForm : Form
     private void ServerComboBox_SelectionChangeCommitted(object sender, EventArgs o)
     {
         Global.Settings.ServerComboBoxSelectedIndex = ServerComboBox.SelectedIndex;
+        RefreshEntryLatencyDiagnostic();
+    }
+
+    private void RefreshEntryLatencyDiagnostic()
+    {
+        if (ServerComboBox.SelectedItem is not Server server)
+        {
+            _entryLatencyDiagnosticLabel.Text = "入口节点 RTT：--";
+            return;
+        }
+
+        var latency = server.Delay < 0 ? "未测试" : $"{server.Delay}ms / 丢包 {server.LossPercent}%";
+        _entryLatencyDiagnosticLabel.Text = $"入口节点 RTT：{latency}";
+        _networkMetricsToolTip.SetToolTip(_entryLatencyDiagnosticLabel,
+            $"入口节点：{server.Hostname}:{server.Port}\n探测 RTT：{latency}\n这是到代理入口节点的探测，不是完整链路或游戏服务器 RTT。");
     }
 
     private async void EditServerPictureBox_Click(object sender, EventArgs e)
@@ -856,6 +949,7 @@ public partial class MainForm : Form
         void Enable()
         {
             ServerComboBox.Refresh();
+            RefreshEntryLatencyDiagnostic();
             Enabled = true;
             StatusText();
         }
@@ -1210,6 +1304,7 @@ public partial class MainForm : Form
                 case State.Started:
                     ControlButton.Enabled = true;
                     ControlButton.Text = i18N.Translate("Stop");
+                    _natTestButton.Enabled = _discoveryNatCts == null;
 
                     ProfileGroupBox.Enabled = true;
 
@@ -1225,6 +1320,7 @@ public partial class MainForm : Form
                 case State.Stopped:
                     ControlButton.Enabled = true;
                     ControlButton.Text = i18N.Translate("Start");
+                    _natTestButton.Enabled = false;
 
                     LastUploadBandwidth = 0;
                     LastDownloadBandwidth = 0;
@@ -1279,6 +1375,7 @@ public partial class MainForm : Form
             text += StatusPortInfoText.Value;
 
         StatusLabel.Text = i18N.Translate("Status", ": ") + text;
+        StatusLabel.ToolTipText = StatusLabel.Text;
     }
 
     public void BandwidthState(bool state)
@@ -1297,6 +1394,11 @@ public partial class MainForm : Form
 
     private void UpdateNatTypeStatusLabelText(string? text, string? country = null)
     {
+        text = string.IsNullOrWhiteSpace(text) ? "Unknown" : text;
+        _natDiagnosticLabel.Text = country == null
+            ? $"出口 NAT：{text}"
+            : $"出口 NAT：{text} [{country}]";
+
         if (!string.IsNullOrEmpty(text))
         {
             if (country == null)
@@ -1316,12 +1418,10 @@ public partial class MainForm : Form
 
     private void ConnectivityStatusVisible(bool visible)
     {
-        if (!visible)
-            HttpStatusLabel.Text = NatTypeStatusLabel.Text = GameNetworkStatusLabel.Text = "";
+        if (!visible && !GameTrafficMonitor.IsActive)
+            _gameDiagnosticLabel.Text = "游戏全链路：未运行";
 
-        HttpStatusLabel.Visible = NatTypeStatusLabel.Visible = NatTypeStatusLightLabel.Visible = visible;
-        GameNetworkStatusLabel.Visible = visible &&
-            (!string.IsNullOrWhiteSpace(MainController.Mode?.NetworkProbeTarget) || GameTrafficMonitor.IsActive);
+        _natTestButton.Enabled = visible && _discoveryNatCts == null;
     }
 
     /// <summary>
@@ -1364,7 +1464,14 @@ public partial class MainForm : Form
 
     private async Task DiscoveryNatTypeAsync()
     {
+        if (MainController.Socks5Server == null)
+        {
+            _natDiagnosticLabel.Text = "出口 NAT：请先启动代理";
+            return;
+        }
+
         NatTypeStatusLabel.Enabled = false;
+        _natTestButton.Enabled = false;
         UpdateNatTypeStatusLabelText(i18N.Translate("Testing NAT Type"));
 
         _discoveryNatCts = new CancellationTokenSource();
@@ -1377,13 +1484,27 @@ public partial class MainForm : Form
 
             if (!string.IsNullOrEmpty(res.PublicEnd))
             {
-                var country = await Utils.Utils.GetCityCodeAsync(res.PublicEnd);
+                string? country = null;
+                try
+                {
+                    country = await Utils.Utils.GetCityCodeAsync(res.PublicEnd);
+                }
+                catch (Exception exception) when (exception is IOException or HttpRequestException or InvalidOperationException)
+                {
+                    Log.Debug(exception, "Unable to look up the STUN egress location");
+                }
+                var natDisplay = res.Result == "Unknown" && !string.IsNullOrWhiteSpace(res.FailureDetails)
+                    ? "Unknown（服务器仅返回公网映射）"
+                    : res.Result;
 
-                NatTypeStatusLabel.ToolTipText = $"Measured through the active proxy; this reports the proxy egress NAT.\n" +
+                var failureDetails = string.IsNullOrWhiteSpace(res.FailureDetails) ? "无" : res.FailureDetails;
+                NatTypeStatusLabel.ToolTipText = $"经当前代理出口测得（不是本机路由器 NAT）。\n" +
                     $"Mapping: {res.MappingBehavior ?? "Unknown"}\nFiltering: {res.FilteringBehavior ?? "Unknown"}\n" +
-                    $"Binding: {res.BindingTestResult ?? "Unknown"}\nLocal: {res.LocalEnd ?? "Unknown"}\nPublic: {res.PublicEnd}";
+                    $"Binding: {res.BindingTestResult ?? "Unknown"}\nLocal: {res.LocalEnd ?? "Unknown"}\nPublic: {res.PublicEnd}\n" +
+                    $"Details: {failureDetails}";
+                _networkMetricsToolTip.SetToolTip(_natDiagnosticLabel, NatTypeStatusLabel.ToolTipText);
 
-                UpdateNatTypeStatusLabelText(res.Result, country);
+                UpdateNatTypeStatusLabelText(natDisplay, country);
                 if (int.TryParse(res.Result, out var natType))
                     UpdateNatTypeLight(natType);
                 else
@@ -1391,7 +1512,8 @@ public partial class MainForm : Form
             }
             else
             {
-                NatTypeStatusLabel.ToolTipText = "NAT discovery did not receive a usable STUN binding response through the active proxy.";
+                NatTypeStatusLabel.ToolTipText = $"经当前代理出口进行 STUN 测试失败。\n{res.FailureDetails ?? "STUN 未返回有效绑定结果。"}";
+                _networkMetricsToolTip.SetToolTip(_natDiagnosticLabel, NatTypeStatusLabel.ToolTipText);
                 UpdateNatTypeStatusLabelText(res.Result ?? "Error");
                 NatTypeStatusLightLabel.Visible = false;
             }
@@ -1403,8 +1525,9 @@ public partial class MainForm : Form
         catch (Exception exception)
         {
             Log.Warning(exception, "NAT type discovery failed");
-            NatTypeStatusLabel.ToolTipText = "The NAT test failed. Check the STUN server settings and the proxy's UDP support.";
-            UpdateNatTypeStatusLabelText("Error");
+            NatTypeStatusLabel.ToolTipText = $"NAT 测试异常：{exception.Message}";
+            _networkMetricsToolTip.SetToolTip(_natDiagnosticLabel, NatTypeStatusLabel.ToolTipText);
+            UpdateNatTypeStatusLabelText("检测失败");
             NatTypeStatusLightLabel.Visible = false;
         }
         finally
@@ -1412,6 +1535,7 @@ public partial class MainForm : Form
             _discoveryNatCts.Dispose();
             _discoveryNatCts = null;
             NatTypeStatusLabel.Enabled = true;
+            _natTestButton.Enabled = MainController.Socks5Server != null;
         }
     }
 
@@ -1430,11 +1554,30 @@ public partial class MainForm : Form
                 return;
 
             if (res != null)
+            {
                 HttpStatusLabel.Text = $"HTTP{i18N.Translate(": ")}{res}ms";
+                _proxyDiagnosticLabel.Text = $"代理连通性：HTTP {res}ms";
+                _proxyDiagnosticLabel.ForeColor = SystemColors.ControlText;
+            }
             else
+            {
                 HttpStatusLabel.Text = $"HTTP{i18N.Translate(": ", "Timeout")}";
+                _proxyDiagnosticLabel.Text = "代理连通性：HTTP 超时";
+                _proxyDiagnosticLabel.ForeColor = Color.Firebrick;
+            }
 
             HttpStatusLabel.Visible = true;
+        }
+        catch (OperationCanceledException) when (_httpConnectCts?.IsCancellationRequested == true)
+        {
+            // Connection stop cancelled the background probe.
+        }
+        catch (Exception exception)
+        {
+            Log.Warning(exception, "Proxy connectivity check failed");
+            _proxyDiagnosticLabel.Text = "代理连通性：检测失败";
+            _proxyDiagnosticLabel.ForeColor = Color.Firebrick;
+            _networkMetricsToolTip.SetToolTip(_proxyDiagnosticLabel, exception.Message);
         }
         finally
         {

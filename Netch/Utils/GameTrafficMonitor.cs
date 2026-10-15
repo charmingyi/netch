@@ -22,6 +22,8 @@ public static class GameTrafficMonitor
 {
     private static readonly object Sync = new();
     private static readonly Dictionary<string, Flow> Flows = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<int, string> ProcessGameIds = new();
+    private static readonly HashSet<int> NonGameProcessIds = new();
     private static string _gameId = string.Empty;
 
     public static bool IsActive
@@ -39,6 +41,8 @@ public static class GameTrafficMonitor
         {
             _gameId = gameId.Trim();
             Flows.Clear();
+            ProcessGameIds.Clear();
+            NonGameProcessIds.Clear();
         }
     }
 
@@ -48,15 +52,57 @@ public static class GameTrafficMonitor
         {
             _gameId = string.Empty;
             Flows.Clear();
+            ProcessGameIds.Clear();
+            NonGameProcessIds.Clear();
         }
     }
 
-    public static void Record(string processName, IPAddress? remoteAddress, int remotePort, bool received)
+    public static void Record(int processId, string? processName, IPAddress? remoteAddress, int remotePort, bool received)
     {
-        if (remoteAddress == null || remotePort is <= 0 or > ushort.MaxValue)
+        if (remoteAddress == null || IPAddress.IsLoopback(remoteAddress) || remotePort is <= 0 or > ushort.MaxValue || remotePort == 53)
             return;
 
-        var gameId = GetGameIdForProcess(processName);
+        var gameId = GetGameIdForProcess(processName ?? string.Empty);
+        if (gameId.Length == 0)
+        {
+            lock (Sync)
+            {
+                if (ProcessGameIds.TryGetValue(processId, out var cachedGameId))
+                    gameId = cachedGameId;
+                else if (NonGameProcessIds.Contains(processId))
+                    return;
+            }
+
+            if (gameId.Length == 0)
+            {
+                try
+                {
+                    using var process = Process.GetProcessById(processId);
+                    gameId = GetGameIdForProcess(process.ProcessName);
+                }
+                catch (ArgumentException)
+                {
+                    // The process may exit before its queued ETW event is handled.
+                }
+                catch (InvalidOperationException)
+                {
+                    // The process may exit before its queued ETW event is handled.
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    // Protected or already-exited processes are not candidates for monitoring.
+                }
+
+                lock (Sync)
+                {
+                    if (gameId.Length > 0)
+                        ProcessGameIds[processId] = gameId;
+                    else
+                        NonGameProcessIds.Add(processId);
+                }
+            }
+        }
+
         if (gameId.Length == 0)
             return;
 

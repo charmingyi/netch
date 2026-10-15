@@ -100,7 +100,9 @@ public static class Bandwidth
 
                 tSession.Source.Kernel.UdpIpRecv += data =>
                 {
-                    GameTrafficMonitor.Record(data.ProcessName, data.daddr, data.dport, true);
+                    // On receive, saddr/sport are the remote game server. daddr/dport
+                    // describe the local game socket and must not be probed as a server.
+                    GameTrafficMonitor.Record(data.ProcessID, data.ProcessName, data.saddr, data.sport, true);
                     if (pidHastSet.Contains(data.ProcessID))
                         lock (counterLock)
                             received += (ulong)data.size;
@@ -109,7 +111,7 @@ public static class Bandwidth
                 };
 
                 tSession.Source.Kernel.UdpIpSend += data =>
-                    GameTrafficMonitor.Record(data.ProcessName, data.daddr, data.dport, false);
+                    GameTrafficMonitor.Record(data.ProcessID, data.ProcessName, data.daddr, data.dport, false);
 
                 tSession.Source.Process();
             })

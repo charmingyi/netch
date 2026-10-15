@@ -1,6 +1,9 @@
+stun.voipgate.com:3478
 stun.miwifi.com
 stun.chat.bilibili.com
 stun.qq.com
 stun.hitv.com
 stun.cloudflare.com
 stun.stunprotocol.org
+stun.l.google.com:19302
+stun1.l.google.com:19302
