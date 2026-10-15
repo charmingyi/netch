@@ -1,5 +1,6 @@
 {
   "type": "ProcessMode",
+  "gameMonitor": "diablo4",
   "remark": {
     "zh-CN": "暗黑破坏神 IV 代理",
     "en": "Diablo IV proxy"

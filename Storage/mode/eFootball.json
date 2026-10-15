@@ -1,5 +1,6 @@
 {
   "type": "ProcessMode",
+  "gameMonitor": "efootball",
   "remark": {
     "zh-CN": "eFootball 代理",
     "en": "eFootball proxy"

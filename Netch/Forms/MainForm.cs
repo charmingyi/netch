@@ -590,11 +590,93 @@ public partial class MainForm : Form
         }
 
         StartedPingAsync().Forget();
-        if (!string.IsNullOrWhiteSpace(mode.NetworkProbeTarget))
+        if (!string.IsNullOrWhiteSpace(mode.GameMonitor))
+        {
+            GameTrafficMonitor.Start(mode.GameMonitor);
+            _gameProbeCts?.Cancel();
+            _gameProbeCts = new CancellationTokenSource();
+            GameTrafficMonitorAsync(_gameProbeCts.Token).Forget();
+        }
+        else if (!string.IsNullOrWhiteSpace(mode.NetworkProbeTarget))
         {
             _gameProbeCts?.Cancel();
             _gameProbeCts = new CancellationTokenSource();
             GameNetworkProbeAsync(mode, _gameProbeCts.Token).Forget();
+        }
+    }
+
+    private async Task GameTrafficMonitorAsync(CancellationToken cancellationToken)
+    {
+        var latencySamples = new Queue<int>();
+        string? lastEndpoint = null;
+        GameNetworkStatusLabel.Visible = true;
+        GameNetworkStatusLabel.ToolTipText = "The endpoint is learned from this game's live UDP traffic. RTT is an ICMP probe to that endpoint; estimated loss is inferred from incoming UDP timing gaps, not decoded game sequence numbers.";
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && State == State.Started && GameTrafficMonitor.IsActive)
+            {
+                var snapshot = GameTrafficMonitor.GetSnapshot();
+                if (snapshot == null)
+                {
+                    GameNetworkStatusLabel.Text = "Game: waiting for game UDP traffic";
+                    await Task.Delay(1000, cancellationToken);
+                    continue;
+                }
+
+                if (!string.Equals(lastEndpoint, snapshot.Endpoint, StringComparison.OrdinalIgnoreCase))
+                {
+                    lastEndpoint = snapshot.Endpoint;
+                    latencySamples.Clear();
+                }
+
+                var latency = -1;
+                try
+                {
+                    using var ping = new System.Net.NetworkInformation.Ping();
+                    var reply = await ping.SendPingAsync(snapshot.RemoteAddress, 1000).WaitAsync(TimeSpan.FromSeconds(2), cancellationToken);
+                    if (reply.Status == System.Net.NetworkInformation.IPStatus.Success)
+                        latency = Convert.ToInt32(reply.RoundtripTime);
+                }
+                catch (Exception exception) when (exception is ArgumentException or System.Net.NetworkInformation.PingException or InvalidOperationException or SocketException or IOException or OperationCanceledException)
+                {
+                    if (exception is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                        break;
+                    Log.Debug(exception, "Game endpoint ICMP probe failed for {Endpoint}", snapshot.Endpoint);
+                }
+
+                latencySamples.Enqueue(latency);
+                while (latencySamples.Count > 10)
+                    latencySamples.Dequeue();
+                var successfulPings = latencySamples.Where(value => value >= 0).OrderBy(value => value).ToArray();
+                var latencyText = successfulPings.Length == 0
+                    ? "ICMP --"
+                    : $"ICMP {successfulPings[successfulPings.Length / 2]}ms";
+                var lossText = snapshot.EstimatedReceiveLossPercent is { } loss
+                    ? $"UDP loss≈{loss:0.#}%"
+                    : "UDP loss --";
+
+                GameNetworkStatusLabel.Text = $"{snapshot.GameName} {latencyText} / {lossText}";
+                GameNetworkStatusLabel.ToolTipText = $"Detected game endpoint: {snapshot.Endpoint}\n" +
+                    $"Current UDP rate: receive {snapshot.ReceivePacketsPerSecond}/s, send {snapshot.SendPacketsPerSecond}/s; incoming stalls: {snapshot.ReceiveStalls}.\n" +
+                    "RTT is the median of recent ICMP probes to the endpoint. It is unavailable when the server blocks ICMP and may not follow the proxy path. UDP loss is an estimate from gaps in the incoming packet cadence, not protocol-confirmed loss. The game may report its own latency differently.";
+
+                await Task.Delay(2000, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The selected profile stopped.
+        }
+        finally
+        {
+            if (_gameProbeCts?.Token == cancellationToken)
+            {
+                _gameProbeCts.Dispose();
+                _gameProbeCts = null;
+                GameNetworkStatusLabel.Visible = false;
+                GameNetworkStatusLabel.Text = string.Empty;
+            }
         }
     }
 
@@ -1231,7 +1313,8 @@ public partial class MainForm : Form
             HttpStatusLabel.Text = NatTypeStatusLabel.Text = GameNetworkStatusLabel.Text = "";
 
         HttpStatusLabel.Visible = NatTypeStatusLabel.Visible = NatTypeStatusLightLabel.Visible = visible;
-        GameNetworkStatusLabel.Visible = visible && !string.IsNullOrWhiteSpace(MainController.Mode?.NetworkProbeTarget);
+        GameNetworkStatusLabel.Visible = visible &&
+            (!string.IsNullOrWhiteSpace(MainController.Mode?.NetworkProbeTarget) || GameTrafficMonitor.IsActive);
     }
 
     /// <summary>

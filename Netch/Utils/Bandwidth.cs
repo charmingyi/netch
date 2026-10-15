@@ -100,12 +100,16 @@ public static class Bandwidth
 
                 tSession.Source.Kernel.UdpIpRecv += data =>
                 {
+                    GameTrafficMonitor.Record(data.ProcessName, data.daddr, data.dport, true);
                     if (pidHastSet.Contains(data.ProcessID))
                         lock (counterLock)
                             received += (ulong)data.size;
 
                     // Debug.WriteLine($"UdpIpRecv: {ToByteSize(data.size)}");
                 };
+
+                tSession.Source.Kernel.UdpIpSend += data =>
+                    GameTrafficMonitor.Record(data.ProcessName, data.daddr, data.dport, false);
 
                 tSession.Source.Process();
             })
@@ -122,6 +126,7 @@ public static class Bandwidth
     public static void Stop()
     {
         tSession?.Dispose();
+        GameTrafficMonitor.Stop();
         received = 0;
     }
 }

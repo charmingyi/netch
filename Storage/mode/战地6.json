@@ -1,5 +1,6 @@
 {
   "type": "ProcessMode",
+  "gameMonitor": "battlefield6",
   "remark": {
     "zh-CN": "战地 6 代理",
     "en": "Battlefield 6 proxy"

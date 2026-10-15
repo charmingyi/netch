@@ -16,6 +16,12 @@ public abstract class Mode
     /// </summary>
     public string NetworkProbeTarget { get; set; } = string.Empty;
 
+    /// <summary>
+    ///     Optional built-in game monitor identifier. It collects the game's UDP endpoints
+    ///     and reports endpoint ICMP RTT plus an estimate from incoming packet gaps.
+    /// </summary>
+    public string GameMonitor { get; set; } = string.Empty;
+
     [JsonIgnore]
     // File FullName
     // TODO maybe make it becomes mode dictionary key
