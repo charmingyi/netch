@@ -41,7 +41,7 @@ public class ShadowsocksUtil : IServerUtil
 
     public IServerController GetController()
     {
-        return new ShadowsocksController();
+        return new AdaptiveShadowsocksController();
     }
 
     public IEnumerable<Server> ParseUri(string text)
@@ -62,6 +62,21 @@ public class ShadowsocksUtil : IServerUtil
         {
             Log.Warning("Unsupported SS Encrypt Method: {Method}", server.EncryptMethod);
             return false;
+        }
+
+        if (SSGlobal.Is2022Method(server.EncryptMethod))
+        {
+            if (!SSGlobal.IsValid2022Key(server.EncryptMethod, server.Password))
+            {
+                Log.Warning("Invalid Shadowsocks 2022 PSK length for method {Method}", server.EncryptMethod);
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(server.Plugin) || !string.IsNullOrWhiteSpace(server.PluginOption))
+            {
+                Log.Warning("Shadowsocks plugins are not supported with AEAD-2022 methods");
+                return false;
+            }
         }
 
         return true;

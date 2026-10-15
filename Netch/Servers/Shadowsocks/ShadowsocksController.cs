@@ -6,6 +6,46 @@ using Netch.Models;
 
 namespace Netch.Servers;
 
+/// <summary>Uses sing-box for SIP022 and the legacy Shadowsocks client for older methods.</summary>
+public sealed class AdaptiveShadowsocksController : IServerController
+{
+    private IServerController? _controller;
+
+    public string Name => _controller?.Name ?? "Shadowsocks";
+    public ushort? Socks5LocalPort { get; set; }
+    public string? LocalAddress { get; set; }
+
+    public async Task<Socks5Server> StartAsync(Server server)
+    {
+        if (server is not ShadowsocksServer node)
+            throw new ArgumentException("Expected a Shadowsocks server", nameof(server));
+
+        _controller = SSGlobal.Is2022Method(node.EncryptMethod)
+            ? new SingBoxController()
+            : new ShadowsocksController();
+        _controller.Socks5LocalPort = Socks5LocalPort;
+        _controller.LocalAddress = LocalAddress;
+        try
+        {
+            return await _controller.StartAsync(server);
+        }
+        catch
+        {
+            _controller = null;
+            throw;
+        }
+    }
+
+    public async Task StopAsync()
+    {
+        if (_controller != null)
+        {
+            await _controller.StopAsync();
+            _controller = null;
+        }
+    }
+}
+
 public class ShadowsocksController : Guard, IServerController
 {
     public ShadowsocksController() : base("Shadowsocks.exe", encoding: Encoding.UTF8)

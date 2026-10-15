@@ -316,6 +316,11 @@ public sealed class SingBoxController : Guard, IUpstreamProxyController
                 common["password"] = anytls.Password;
                 common["tls"] = new { enabled = true, server_name = string.IsNullOrWhiteSpace(anytls.ServerName) ? anytls.Hostname : anytls.ServerName, insecure = anytls.AllowInsecure };
                 break;
+            case ShadowsocksServer shadowsocks when SSGlobal.Is2022Method(shadowsocks.EncryptMethod):
+                common["type"] = "shadowsocks";
+                common["method"] = shadowsocks.EncryptMethod;
+                common["password"] = shadowsocks.Password;
+                break;
             default:
                 throw new NotSupportedException($"sing-box does not support {server.Type} nodes.");
         }

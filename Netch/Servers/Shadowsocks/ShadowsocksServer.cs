@@ -38,6 +38,30 @@ public class ShadowsocksServer : Server
 
 public static class SSGlobal
 {
+    public static bool Is2022Method(string? method) => method?.StartsWith("2022-blake3-", StringComparison.Ordinal) == true;
+
+    public static bool IsValid2022Key(string method, string key)
+    {
+        var expectedLength = method switch
+        {
+            "2022-blake3-aes-128-gcm" => 16,
+            "2022-blake3-aes-256-gcm" or "2022-blake3-chacha20-poly1305" => 32,
+            _ => 0
+        };
+
+        if (expectedLength == 0)
+            return false;
+
+        try
+        {
+            return Convert.FromBase64String(key).Length == expectedLength;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     ///     SS 加密列表
     /// </summary>

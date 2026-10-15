@@ -39,6 +39,7 @@ public sealed class ProxyChainController : IServerController
                 IUpstreamProxyController upstreamController = node switch
                 {
                     Hysteria2Server or AnyTlsServer => new SingBoxController(),
+                    ShadowsocksServer shadowsocks when SSGlobal.Is2022Method(shadowsocks.EncryptMethod) => new SingBoxController(),
                     MieruServer => new MieruController(),
                     _ => new V2rayController()
                 };
