@@ -444,9 +444,12 @@ public partial class MainForm : Form
             progress.ProgressChanged += (_, percentage) => { NewVersionLabel.Text = $"{percentage}%"; };
 
             string downloadDirectory = Path.Combine(Global.NetchDir, "data");
+            Directory.CreateDirectory(downloadDirectory);
 
             var (updateFileName, sha256) = UpdateChecker.GetLatestUpdateFileNameAndHash();
-            var updateFileUrl = UpdateChecker.LatestRelease.assets[0].browser_download_url!;
+            var updateFileUrl = UpdateChecker.LatestRelease.assets
+                .Single(asset => asset.name.Equals(updateFileName, StringComparison.OrdinalIgnoreCase))
+                .browser_download_url!;
 
             var updateFileFullName = Path.Combine(downloadDirectory, updateFileName);
             var updater = new Updater(updateFileFullName, Global.NetchDir);
