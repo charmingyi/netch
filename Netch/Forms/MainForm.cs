@@ -1521,9 +1521,12 @@ public partial class MainForm : Form
             }
             else
             {
-                NatTypeStatusLabel.ToolTipText = $"经当前代理出口进行 STUN 测试失败。\n{res.FailureDetails ?? "STUN 未返回有效绑定结果。"}";
+                var noUdpResponse = res.Result == "NoUDP";
+                NatTypeStatusLabel.ToolTipText = noUdpResponse
+                    ? $"经当前代理出口发送的多个 STUN UDP 探测均未收到响应。请确认当前节点/核心允许 UDP 转发，或更换节点、STUN 服务器后重试。此结果不能判断 NAT 类型。\n{res.FailureDetails ?? "无额外错误信息。"}"
+                    : $"经当前代理出口进行 STUN 测试失败。\n{res.FailureDetails ?? "STUN 未返回有效绑定结果。"}";
                 _networkMetricsToolTip.SetToolTip(_natDiagnosticLabel, NatTypeStatusLabel.ToolTipText);
-                UpdateNatTypeStatusLabelText(res.Result ?? "Error");
+                UpdateNatTypeStatusLabelText(noUdpResponse ? "UDP 无响应" : res.Result ?? "Error");
                 NatTypeStatusLightLabel.Visible = false;
             }
         }

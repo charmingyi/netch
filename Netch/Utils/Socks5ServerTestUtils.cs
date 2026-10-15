@@ -148,6 +148,7 @@ public static class Socks5ServerTestUtils
 
         var errors = new List<string>();
         NatTypeTestResult? basicBindingResult = null;
+        var bindingNoResponse = false;
         // A failed STUN server must not leave the UI spinning through a long user
         // supplied list. Try the configured server and at most three fallbacks.
         foreach (var (stunServer, port) in candidates.Distinct().Take(4))
@@ -204,6 +205,7 @@ public static class Socks5ServerTestUtils
             var res = client.State;
             if (res.BindingTestResult != BindingTestResult.Success)
             {
+                bindingNoResponse |= res.BindingTestResult == BindingTestResult.Fail;
                 errors.Add($"{stunServer}: binding test {res.BindingTestResult}");
                 Log.Debug("STUN server {StunServer} did not complete the binding test: {BindingTestResult}", stunServer, res.BindingTestResult);
                 continue;
@@ -245,7 +247,7 @@ public static class Socks5ServerTestUtils
 
         return new NatTypeTestResult
         {
-            Result = "Unknown",
+            Result = bindingNoResponse ? "NoUDP" : "Unknown",
             BindingTestResult = "Failed",
             FailureDetails = string.Join(Environment.NewLine, errors)
         };
@@ -307,7 +309,8 @@ public static class Socks5ServerTestUtils
             timeout.CancelAfter(TimeSpan.FromSeconds(4));
             try
             {
-                if (await Socks5.Utils.Socks5TestUtils.Socks5ConnectAsync(socks5Option, host, path, 80, timeout.Token))
+                var url = $"http://{host}{path}";
+                if (await Socks5.Utils.Socks5TestUtils.Socks5ConnectAsync(socks5Option, url, host, 80, timeout.Token))
                 {
                     stopwatch.Stop();
                     return Convert.ToInt32(stopwatch.Elapsed.TotalMilliseconds);
