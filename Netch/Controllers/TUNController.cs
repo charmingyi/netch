@@ -95,19 +95,31 @@ namespace Netch.Controllers
 
             #endregion
 
+            Log.Information("Initializing tun2socks and creating the Wintun adapter");
             if (!Init())
                 throw new MessageException("tun2socks start failed.");
             _initialized = true;
+            Log.Information("tun2socks initialized; waiting for the Wintun interface");
 
-            // Init creates the Wintun adapter. Wait only after it has succeeded;
-            // waiting before Init means a fresh install can never see the adapter.
             var adapterFound = false;
+            ulong adapterLuid = 0;
+            var tunIndex = 0;
             for (var i = 0; i < 100; i++)
             {
                 await Task.Delay(300);
                 try
                 {
-                    _tun.InterfaceIndex = NetworkInterfaceUtils.Get(ni => ni.Name.StartsWith(interfaceName)).GetIndex();
+                    // Resolve the interface using tun2socks' adapter LUID. Display names
+                    // are assigned by Windows and are not guaranteed to start with "netch".
+                    adapterLuid = tun_luid();
+                    if (adapterLuid == 0)
+                        continue;
+
+                    tunIndex = checked((int)RouteHelper.ConvertLuidToIndex(adapterLuid));
+                    if (tunIndex <= 0)
+                        continue;
+
+                    _tun.InterfaceIndex = NetworkInterfaceUtils.Get(tunIndex).GetIndex();
                     adapterFound = true;
                     break;
                 }
@@ -118,11 +130,16 @@ namespace Netch.Controllers
             }
 
             if (!adapterFound)
-                throw new MessageException("Wintun adapter did not become available within 30 seconds after initialization.");
+            {
+                var interfaces = string.Join(", ", NetworkInterface.GetAllNetworkInterfaces()
+                    .Select(ni => $"{ni.Name} ({ni.Description})"));
+                Log.Error("Wintun interface lookup timed out. Adapter LUID: {AdapterLuid}; interface index: {InterfaceIndex}; interfaces: {Interfaces}",
+                    adapterLuid, tunIndex, interfaces);
+                throw new MessageException("Wintun adapter could not be matched to a Windows network interface. See the application log for adapter details.");
+            }
 
-            Log.Information("Wintun adapter is available at interface index {InterfaceIndex}", _tun.InterfaceIndex);
+            Log.Information("Wintun adapter is available at interface index {InterfaceIndex} (LUID {AdapterLuid})", _tun.InterfaceIndex, adapterLuid);
 
-            var tunIndex = (int)RouteHelper.ConvertLuidToIndex(tun_luid());
             _tun = NetRoute.TemplateBuilder(_tunConfig.Gateway, tunIndex);
 
             RouteHelper.CreateUnicastIP(AddressFamily.InterNetwork,
