@@ -287,7 +287,9 @@ public sealed class SingBoxController : Guard, IUpstreamProxyController
         var config = new
         {
             log = new { level = "warn", timestamp = true },
-            inbounds = new[] { new { type = "socks", tag = "netch-in", listen, listen_port = port, udp = true } },
+            // sing-box 1.14 removed the legacy SOCKS inbound `udp` field;
+            // SOCKS5 UDP ASSOCIATE is supported by the inbound automatically.
+            inbounds = new[] { new { type = "socks", tag = "netch-in", listen, listen_port = port } },
             outbounds,
             route = new { final = outbound["tag"] }
         };
