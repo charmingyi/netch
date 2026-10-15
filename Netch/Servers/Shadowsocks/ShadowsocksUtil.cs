@@ -1,6 +1,8 @@
 ﻿using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Web;
+using System.Net;
+using System.Net.Sockets;
 using Netch.Interfaces;
 using Netch.Models;
 using Netch.Utils;
@@ -34,6 +36,16 @@ public class ShadowsocksUtil : IServerUtil
     public string GetShareLink(Server s)
     {
         var server = (ShadowsocksServer)s;
+        if (SSGlobal.Is2022Method(server.EncryptMethod))
+        {
+            // SIP002 requires plain, percent-escaped userinfo for AEAD-2022.
+            var userInfo = $"{Uri.EscapeDataString(server.EncryptMethod)}:{Uri.EscapeDataString(server.Password)}";
+            var host = IPAddress.TryParse(server.Hostname, out var address) && address.AddressFamily == AddressFamily.InterNetworkV6
+                ? $"[{server.Hostname}]"
+                : server.Hostname;
+            return $"ss://{userInfo}@{host}:{server.Port}#{HttpUtility.UrlEncode(server.Remark)}";
+        }
+
         // ss://method:password@server:port#Remark
         return "ss://" + ShareLink.URLSafeBase64Encode($"{server.EncryptMethod}:{server.Password}@{server.Hostname}:{server.Port}") + "#" +
                HttpUtility.UrlEncode(server.Remark);
@@ -151,22 +163,47 @@ public class ShadowsocksUtil : IServerUtil
 
         if (text.Contains("@"))
         {
-            var finder = new Regex(@"^ss://(?<base64>.+?)@(?<server>.+):(?<port>\d+)");
-            var parser = new Regex(@"^(?<method>.+?):(?<password>.+)$");
-            var match = finder.Match(text);
-            if (!match.Success)
+            var uri = new Uri(text);
+            if (uri.Port is <= 0 or > ushort.MaxValue || string.IsNullOrWhiteSpace(uri.Host))
                 throw new FormatException();
 
-            data.Hostname = match.Groups["server"].Value;
-            data.Port = ushort.Parse(match.Groups["port"].Value);
+            data.Hostname = uri.Host;
+            data.Port = checked((ushort)uri.Port);
 
-            var base64 = ShareLink.URLSafeBase64Decode(match.Groups["base64"].Value);
-            match = parser.Match(base64);
-            if (!match.Success)
-                throw new FormatException();
+            var userInfo = uri.GetComponents(UriComponents.UserInfo, UriFormat.UriEscaped);
+            var decodedUserInfo = Uri.UnescapeDataString(userInfo);
+            var separator = decodedUserInfo.IndexOf(':');
+            if (separator <= 0 || separator == decodedUserInfo.Length - 1)
+                throw new FormatException("Shadowsocks userinfo must contain method and password.");
 
-            data.EncryptMethod = match.Groups["method"].Value;
-            data.Password = match.Groups["password"].Value;
+            var method = decodedUserInfo[..separator];
+            if (SSGlobal.Is2022Method(method))
+            {
+                // SIP002 specifies that AEAD-2022 userinfo is not base64 encoded.
+                data.EncryptMethod = method;
+                data.Password = decodedUserInfo[(separator + 1)..];
+            }
+            else
+            {
+                // Legacy SIP002 userinfo is websafe-base64(method:password).
+                string credentials;
+                try
+                {
+                    credentials = ShareLink.URLSafeBase64Decode(userInfo);
+                }
+                catch (FormatException)
+                {
+                    // Also accept plain userinfo used by some older clients.
+                    credentials = decodedUserInfo;
+                }
+
+                var credentialSeparator = credentials.IndexOf(':');
+                if (credentialSeparator <= 0 || credentialSeparator == credentials.Length - 1)
+                    throw new FormatException("Invalid Shadowsocks credentials.");
+
+                data.EncryptMethod = credentials[..credentialSeparator];
+                data.Password = credentials[(credentialSeparator + 1)..];
+            }
         }
         else
         {
