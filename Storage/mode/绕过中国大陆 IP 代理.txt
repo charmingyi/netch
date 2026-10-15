@@ -1,5 +1,5 @@
-# Bypass LAN and China, 2
-#include <Bypass LAN.h>
+# 绕过中国大陆 IP 代理, 2
+#include <Rules/Bypass LAN.h>
 1.0.1.0/24
 1.0.2.0/23
 1.0.8.0/21

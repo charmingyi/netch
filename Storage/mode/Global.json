@@ -1,14 +1,11 @@
 {
   "type": "ProcessMode",
   "remark": {
-    "zh-CN": "Global"
+    "zh-CN": "全局代理",
+    "en": "Global proxy"
   },
-  "handle": [
-    ".*"
-  ],
-  "bypass": [
-    "\\Netch\\"
-  ],
+  "handle": [".*"],
+  "bypass": ["\\Netch\\"],
   "filterIntranet": true,
   "filterLoopback": false,
   "dnsHost": "1.1.1.1:53",

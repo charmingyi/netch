@@ -1,21 +1,20 @@
 {
   "type": "ProcessMode",
   "remark": {
-    "zh-CN": "PVZ Battle for Neighborville"
+    "zh-CN": "仅代理 Chrome",
+    "en": "Chrome only"
   },
-  "handle": [
-    "PVZ Battle for Neighborville"
-  ],
-  "bypass": [],
+  "handle": ["chrome\\.exe"],
+  "bypass": ["\\Netch\\"],
   "filterIntranet": true,
   "filterLoopback": false,
   "dnsHost": "1.1.1.1:53",
   "handleOnlyDNS": null,
   "icmpDelay": 10,
   "filterParent": null,
-  "filterDNS": null,
-  "filterUDP": null,
-  "filterTCP": null,
-  "filterICMP": null,
+  "filterDNS": true,
+  "filterUDP": true,
+  "filterTCP": true,
+  "filterICMP": true,
   "dnsProxy": null
 }

@@ -78,9 +78,25 @@ public class ModeService
 
     private static void SortCollection()
     {
-        // TODO better sort need to discuss
-        // TODO replace Mode Collection type
-        Global.Modes.Sort((a, b) => string.Compare(a.i18NRemark, b.i18NRemark, StringComparison.Ordinal));
+        static int BuiltInPriority(Mode mode)
+        {
+            if (Instance.IsCustomMode(mode))
+                return int.MaxValue;
+
+            return Path.GetFileName(mode.FullName) switch
+            {
+                "Global.json" => 0,
+                "绕过中国大陆 IP 代理.txt" => 1,
+                "仅 Chrome 代理.json" => 2,
+                _ => int.MaxValue
+            };
+        }
+
+        Global.Modes.Sort((a, b) =>
+        {
+            var priority = BuiltInPriority(a).CompareTo(BuiltInPriority(b));
+            return priority != 0 ? priority : string.Compare(a.i18NRemark, b.i18NRemark, StringComparison.Ordinal);
+        });
     }
 
     public void Add(Mode mode)
