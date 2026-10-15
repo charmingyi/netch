@@ -53,28 +53,6 @@ namespace Netch.Controllers
             _outbound = NetRoute.GetBestRouteTemplate();
             CheckDriver();
 
-            // Wintun can take longer to publish its interface on recent Windows builds.
-            // Do not continue with an uninitialized interface index: that can leave
-            // partially installed routes behind and makes Stop appear to hang.
-            var adapterFound = false;
-            for (var i = 0; i < 100; i++)
-            {
-                await Task.Delay(300);
-                try
-                {
-                    _tun.InterfaceIndex = NetworkInterfaceUtils.Get(ni => ni.Name.StartsWith(interfaceName)).GetIndex();
-                    adapterFound = true;
-                    break;
-                }
-                catch (Exception exception) when (exception is InvalidOperationException or NetworkInformationException or NotSupportedException)
-                {
-                    // ignored
-                }
-            }
-
-            if (!adapterFound)
-                throw new MessageException("Wintun adapter did not become available within 30 seconds.");
-
             Dial(NameList.TYPE_ADAPMTU, "1500");
             Dial(NameList.TYPE_BYPBIND, _outbound.Gateway);
             Dial(NameList.TYPE_BYPLIST, "disabled");
@@ -120,6 +98,29 @@ namespace Netch.Controllers
             if (!Init())
                 throw new MessageException("tun2socks start failed.");
             _initialized = true;
+
+            // Init creates the Wintun adapter. Wait only after it has succeeded;
+            // waiting before Init means a fresh install can never see the adapter.
+            var adapterFound = false;
+            for (var i = 0; i < 100; i++)
+            {
+                await Task.Delay(300);
+                try
+                {
+                    _tun.InterfaceIndex = NetworkInterfaceUtils.Get(ni => ni.Name.StartsWith(interfaceName)).GetIndex();
+                    adapterFound = true;
+                    break;
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or NetworkInformationException or NotSupportedException)
+                {
+                    // The Windows network interface list can lag behind adapter creation.
+                }
+            }
+
+            if (!adapterFound)
+                throw new MessageException("Wintun adapter did not become available within 30 seconds after initialization.");
+
+            Log.Information("Wintun adapter is available at interface index {InterfaceIndex}", _tun.InterfaceIndex);
 
             var tunIndex = (int)RouteHelper.ConvertLuidToIndex(tun_luid());
             _tun = NetRoute.TemplateBuilder(_tunConfig.Gateway, tunIndex);
