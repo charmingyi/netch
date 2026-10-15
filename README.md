@@ -31,6 +31,8 @@ Some features may not be implemented in version 1
 - [`Trojan`](https://trojan-gfw.github.io/trojan)
 - [`VMess`](https://www.v2fly.org)
 - [`VLESS`](https://xtls.github.io)
+- Hysteria 2 and AnyTLS (sing-box)
+- [mieru](https://github.com/enfein/mieru)
 - Multi-hop proxy chains for supported outbound protocols
 
 ### Others

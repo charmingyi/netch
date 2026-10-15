@@ -66,10 +66,13 @@ public static class MainController
                 // Start Server Controller to get a local socks5 server
                 Log.Debug("Server Information: {Data}", $"{server.Type} {server.MaskedData()}");
 
-                ServerController = new V2rayController();
+                ServerController = server is ProxyChainServer
+                    ? new ProxyChainController()
+                    : ServerHelper.GetUtilByTypeName(server.Type).GetController();
                 Global.MainForm.StatusText(i18N.TranslateFormat("Starting {0}", ServerController.Name));
 
-                TryReleaseTcpPort(ServerController.Socks5LocalPort(), "Socks5");
+                if (server is not ProxyChainServer)
+                    TryReleaseTcpPort(ServerController.Socks5LocalPort(), "Socks5");
                 Socks5Server = await ServerController.StartAsync(server);
 
                 StatusPortInfoText.Socks5Port = Socks5Server.Port;
@@ -121,23 +124,44 @@ public static class MainController
         Log.Information("Stop Main Controller");
         StatusPortInfoText.Reset();
 
-        var tasks = new[]
+        try
         {
-            ServerController?.StopAsync() ?? Task.CompletedTask,
-            ModeController?.StopAsync() ?? Task.CompletedTask
-        };
+            if (ModeController != null)
+                await StopControllerAsync(ModeController.StopAsync, ModeController.Name);
+        }
+        finally
+        {
+            ModeController = null;
+        }
 
         try
         {
-            await Task.WhenAll(tasks);
+            if (ServerController != null)
+                await StopControllerAsync(ServerController.StopAsync, ServerController.Name);
         }
-        catch (Exception e)
+        finally
         {
-            Log.Error(e, "MainController Stop Error");
+            ServerController = null;
+            Socks5Server = null;
+            Mode = null;
+            Server = null;
         }
+    }
 
-        ServerController = null;
-        ModeController = null;
+    private static async Task StopControllerAsync(Func<Task> stop, string name)
+    {
+        try
+        {
+            await stop().WaitAsync(TimeSpan.FromSeconds(20));
+        }
+        catch (TimeoutException exception)
+        {
+            Log.Error(exception, "Stopping {Controller} exceeded the 20 second limit", name);
+        }
+        catch (Exception exception)
+        {
+            Log.Error(exception, "Stopping {Controller} failed", name);
+        }
     }
 
     public static void PortCheck(ushort port, string portName, PortType portType = PortType.Both)

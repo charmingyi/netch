@@ -51,6 +51,8 @@ if ( -Not ( Test-Path '.\Other\release' ) ) {
 cp -Force '.\Other\release\*.bin' "$OutputPath\bin"
 cp -Force '.\Other\release\*.dll' "$OutputPath\bin"
 cp -Force '.\Other\release\*.exe' "$OutputPath\bin"
+cp -Force '.\Other\release\*LICENSE*.txt' "$OutputPath\bin"
+cp -Force '.\Other\release\modern-proxies.json' "$OutputPath\bin"
 
 if ( -Not ( Test-Path ".\Netch\bin\$Configuration" ) ) {
 	Write-Host

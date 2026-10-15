@@ -7,7 +7,8 @@ namespace Netch.Servers;
 
 public static class V2rayConfigUtils
 {
-    public static async Task<V2rayConfig> GenerateClientConfigAsync(Server server)
+    public static async Task<V2rayConfig> GenerateClientConfigAsync(Server server, ushort? socksPort = null,
+        string? localAddress = null, Socks5Server? upstreamProxy = null)
     {
         var v2rayConfig = new V2rayConfig
         {
@@ -15,9 +16,9 @@ public static class V2rayConfigUtils
             {
                 new
                 {
-                    port = Global.Settings.Socks5LocalPort,
+                    port = socksPort ?? Global.Settings.Socks5LocalPort,
                     protocol = "socks",
-                    listen = Global.Settings.LocalAddress,
+                    listen = localAddress ?? Global.Settings.LocalAddress,
                     tag = "netch-inbound",
                     settings = new
                     {
@@ -28,7 +29,29 @@ public static class V2rayConfigUtils
             }
         };
 
-        v2rayConfig.outbounds = new[] { await outbound(server) };
+        var proxyOutbound = await outbound(server);
+        if (upstreamProxy != null)
+        {
+            proxyOutbound.proxySettings = new OutboundProxySettings { tag = "netch-upstream" };
+            var upstreamOutbound = new Outbound
+            {
+                tag = "netch-upstream",
+                protocol = "socks",
+                settings = new OutboundConfiguration
+                {
+                    version = "5",
+                    servers = new object[]
+                    {
+                        new { address = upstreamProxy.Hostname, port = upstreamProxy.Port }
+                    }
+                }
+            };
+            v2rayConfig.outbounds = new[] { proxyOutbound, upstreamOutbound };
+        }
+        else
+        {
+            v2rayConfig.outbounds = new[] { proxyOutbound };
+        }
 
         return v2rayConfig;
     }

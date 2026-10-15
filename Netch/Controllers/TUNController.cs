@@ -22,6 +22,12 @@ namespace Netch.Controllers
 
         private NetRoute _tun;
         private NetRoute _outbound;
+        private bool _initialized;
+        private bool _dnsStarted;
+        private bool _routesMayExist;
+        private NetworkInterface? _tunNetworkInterface;
+        private IPAddress[] _originalTunDns = Array.Empty<IPAddress>();
+        private bool _customDnsApplied;
 
         public string Name => "tun2socks";
         public string interfaceName => "netch";
@@ -47,20 +53,27 @@ namespace Netch.Controllers
             _outbound = NetRoute.GetBestRouteTemplate();
             CheckDriver();
 
-            // Wait for adapter to be created
-            for (var i = 0; i < 20; i++)
+            // Wintun can take longer to publish its interface on recent Windows builds.
+            // Do not continue with an uninitialized interface index: that can leave
+            // partially installed routes behind and makes Stop appear to hang.
+            var adapterFound = false;
+            for (var i = 0; i < 100; i++)
             {
                 await Task.Delay(300);
                 try
                 {
                     _tun.InterfaceIndex = NetworkInterfaceUtils.Get(ni => ni.Name.StartsWith(interfaceName)).GetIndex();
+                    adapterFound = true;
                     break;
                 }
-                catch
+                catch (Exception exception) when (exception is InvalidOperationException or NetworkInformationException or NotSupportedException)
                 {
                     // ignored
                 }
             }
+
+            if (!adapterFound)
+                throw new MessageException("Wintun adapter did not become available within 30 seconds.");
 
             Dial(NameList.TYPE_ADAPMTU, "1500");
             Dial(NameList.TYPE_BYPBIND, _outbound.Gateway);
@@ -98,6 +111,7 @@ namespace Netch.Controllers
             else
             {
                 await _aioDnsController.StartAsync();
+                _dnsStarted = true;
                 Dial(NameList.TYPE_DNSADDR, $"127.0.0.1:{Global.Settings.AioDNS.ListenPort}");
             }
 
@@ -105,6 +119,7 @@ namespace Netch.Controllers
 
             if (!Init())
                 throw new MessageException("tun2socks start failed.");
+            _initialized = true;
 
             var tunIndex = (int)RouteHelper.ConvertLuidToIndex(tun_luid());
             _tun = NetRoute.TemplateBuilder(_tunConfig.Gateway, tunIndex);
@@ -114,19 +129,60 @@ namespace Netch.Controllers
                 (byte)Utils.Utils.SubnetToCidr(_tunConfig.Netmask),
                 (ulong)tunIndex);
 
+            _routesMayExist = true;
             SetupRouteTable();
         }
 
         public async Task StopAsync()
         {
-            var tasks = new[]
+            if (_initialized)
             {
-                FreeAsync(),
-                Task.Run(ClearRouteTable),
-                _aioDnsController.StopAsync()
-            };
+                try
+                {
+                    var freed = await FreeAsync().WaitAsync(TimeSpan.FromSeconds(10));
+                    if (!freed)
+                        Log.Warning("tun2socks reported that the adapter did not stop cleanly");
+                }
+                catch (TimeoutException exception)
+                {
+                    Log.Error(exception, "Stopping tun2socks exceeded the 10 second limit");
+                }
+                catch (Exception exception)
+                {
+                    Log.Error(exception, "Stopping tun2socks failed");
+                }
+                finally
+                {
+                    _initialized = false;
+                }
+            }
 
-            await Task.WhenAll(tasks);
+            if (_routesMayExist)
+                await Task.Run(ClearRouteTable);
+
+            if (_dnsStarted)
+            {
+                try
+                {
+                    await _aioDnsController.StopAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (TimeoutException exception)
+                {
+                    Log.Error(exception, "Stopping DNS service exceeded the 5 second limit");
+                }
+                catch (Exception exception)
+                {
+                    Log.Error(exception, "Stopping DNS service failed");
+                }
+                finally
+                {
+                    _dnsStarted = false;
+                }
+            }
+
+            _tunNetworkInterface = null;
+            _originalTunDns = Array.Empty<IPAddress>();
+            _customDnsApplied = false;
         }
 
         private void CheckDriver()
@@ -160,6 +216,7 @@ namespace Netch.Controllers
             Global.MainForm.StatusText(i18N.Translate("Setup Route Table Rule"));
 
             var tunNetworkInterface = NetworkInterfaceUtils.Get(_tun.InterfaceIndex);
+            _tunNetworkInterface = tunNetworkInterface;
             // Server Address
             if (_serverRemoteAddress != null)
                 RouteUtils.CreateRoute(_outbound.FillTemplate(_serverRemoteAddress.ToString(), 32));
@@ -181,7 +238,9 @@ namespace Netch.Controllers
                     RouteUtils.CreateRoute(_tun.FillTemplate(_tunConfig.DNS, 32));
                 }
 
+                _originalTunDns = tunNetworkInterface.GetIPProperties().DnsAddresses.ToArray();
                 tunNetworkInterface.SetDns(_tunConfig.DNS);
+                _customDnsApplied = true;
             }
             else
             {
@@ -194,18 +253,41 @@ namespace Netch.Controllers
 
         private void ClearRouteTable()
         {
-            if (_serverRemoteAddress != null)
-                RouteUtils.DeleteRoute(_outbound.FillTemplate(_serverRemoteAddress.ToString(), 32));
-
-            if (_outbound.Gateway != null)
+            void TryCleanup(Action cleanup, string description)
             {
-                RouteUtils.DeleteRouteFill(_outbound, Global.Settings.TUNTAP.BypassIPs);
-                RouteUtils.DeleteRoute(_outbound.FillTemplate(Utils.Utils.GetHostFromUri(Global.Settings.AioDNS.ChinaDNS), 32));
-                NetworkInterfaceUtils.SetInterfaceMetric(_outbound.InterfaceIndex);
+                try
+                {
+                    cleanup();
+                }
+                catch (Exception exception)
+                {
+                    Log.Warning(exception, "TUN cleanup failed for {Description}", description);
+                }
             }
 
-            if (_mode != null)
-                RouteUtils.DeleteRouteFill(_outbound, _mode.Bypass);
+            if (_routesMayExist && _outbound.Gateway != null)
+            {
+                if (_serverRemoteAddress != null)
+                    TryCleanup(() => RouteUtils.DeleteRoute(_outbound.FillTemplate(_serverRemoteAddress.ToString(), 32)), "proxy server route");
+                TryCleanup(() => RouteUtils.DeleteRouteFill(_outbound, _tunConfig.BypassIPs), "bypass IP routes");
+                TryCleanup(() => RouteUtils.DeleteRoute(_outbound.FillTemplate(Utils.Utils.GetHostFromUri(Global.Settings.AioDNS.ChinaDNS), 32)), "China DNS route");
+                TryCleanup(() => NetworkInterfaceUtils.SetInterfaceMetric(_outbound.InterfaceIndex), "outbound interface metric");
+                if (_mode != null)
+                    TryCleanup(() => RouteUtils.DeleteRouteFill(_outbound, _mode.Bypass), "mode bypass routes");
+            }
+
+            if (_routesMayExist && _tun.InterfaceIndex != 0 && _mode != null)
+                TryCleanup(() => RouteUtils.DeleteRouteFill(_tun, _mode.Handle), "mode tunnel routes");
+
+            if (_routesMayExist && _tunConfig.UseCustomDNS && _tunConfig.ProxyDNS && _tun.InterfaceIndex != 0)
+                TryCleanup(() => RouteUtils.DeleteRoute(_tun.FillTemplate(_tunConfig.DNS, 32)), "custom DNS route");
+            else if (_routesMayExist && !_tunConfig.UseCustomDNS && _tun.InterfaceIndex != 0)
+                TryCleanup(() => RouteUtils.DeleteRoute(_tun.FillTemplate(Utils.Utils.GetHostFromUri(Global.Settings.AioDNS.OtherDNS), 32)), "other DNS tunnel route");
+
+            if (_customDnsApplied && _tunNetworkInterface != null)
+                TryCleanup(() => _tunNetworkInterface.RestoreDns(_originalTunDns), "tunnel adapter DNS settings");
+
+            _routesMayExist = false;
         }
 
         #endregion

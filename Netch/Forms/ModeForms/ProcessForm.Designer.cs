@@ -212,7 +212,7 @@ namespace Netch.Forms.ModeForms
             this.HealthCheckTargetLabel.Name = "HealthCheckTargetLabel";
             this.HealthCheckTargetLabel.Size = new System.Drawing.Size(145, 17);
             this.HealthCheckTargetLabel.TabIndex = 14;
-            this.HealthCheckTargetLabel.Text = "Game server probe host";
+            this.HealthCheckTargetLabel.Text = "Game probe target (host or host:port)";
             //
             // HealthCheckTargetTextBox
             //

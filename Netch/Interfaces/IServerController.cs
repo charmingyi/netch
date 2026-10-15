@@ -12,6 +12,14 @@ public interface IServerController : IController
     public Task<Socks5Server> StartAsync(Server s);
 }
 
+/// <summary>
+///     A server controller that can dial its remote proxy through an existing local SOCKS5 hop.
+/// </summary>
+public interface IUpstreamProxyController : IServerController
+{
+    Task<Socks5Server> StartAsync(Server server, Socks5Server? upstreamProxy);
+}
+
 public static class ServerControllerExtension
 {
     public static ushort Socks5LocalPort(this IServerController controller)

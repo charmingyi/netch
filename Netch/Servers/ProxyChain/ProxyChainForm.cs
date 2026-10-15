@@ -1,5 +1,6 @@
 using Netch.Models;
 using Netch.Utils;
+using Netch.Controllers;
 using Microsoft.VisualStudio.Threading;
 
 namespace Netch.Servers;
@@ -105,6 +106,13 @@ public sealed class ProxyChainForm : Form
         if (string.IsNullOrWhiteSpace(_name.Text) || nodes.Count is < 2 or > 5)
         {
             MessageBox.Show(this, "Enter a name and select between two and five nodes.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            DialogResult = DialogResult.None;
+            return;
+        }
+
+        if (nodes.Any(node => !ProxyChainController.CanChain(node) || !ServerHelper.GetUtilByTypeName(node.Type).CheckServer(node)))
+        {
+            MessageBox.Show(this, "The selected chain contains a protocol without upstream dialing support.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             DialogResult = DialogResult.None;
             return;
         }

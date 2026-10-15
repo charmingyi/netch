@@ -6,7 +6,7 @@ using Netch.Models;
 
 namespace Netch.Servers;
 
-public class V2rayController : Guard, IServerController
+public class V2rayController : Guard, IUpstreamProxyController
 {
     public V2rayController() : base("v2ray-sn.exe")
     {
@@ -24,17 +24,21 @@ public class V2rayController : Guard, IServerController
 
     public string? LocalAddress { get; set; }
 
-    public virtual async Task<Socks5Server> StartAsync(Server s)
+    public virtual Task<Socks5Server> StartAsync(Server s) => StartAsync(s, null);
+
+    public virtual async Task<Socks5Server> StartAsync(Server s, Socks5Server? upstreamProxy)
     {
         await using (var fileStream = new FileStream(Constants.TempConfig, FileMode.Create, FileAccess.Write, FileShare.Read))
         {
             var config = s is ProxyChainServer chain
                 ? await V2rayConfigUtils.GenerateClientConfigAsync(chain.Nodes)
-                : await V2rayConfigUtils.GenerateClientConfigAsync(s);
+                : await V2rayConfigUtils.GenerateClientConfigAsync(s, this.Socks5LocalPort(), this.LocalAddress(), upstreamProxy);
             await JsonSerializer.SerializeAsync(fileStream, config, Global.NewCustomJsonSerializerOptions());
         }
 
         await StartGuardAsync("run -c ..\\data\\last.json");
+        if (this.LocalAddress() == IPAddress.Loopback.ToString())
+            await SingBoxController.WaitForListenerAsync(this.Socks5LocalPort(), Name, IPAddress.Loopback);
         return new Socks5Server(IPAddress.Loopback.ToString(), this.Socks5LocalPort(), s.Hostname);
     }
 }

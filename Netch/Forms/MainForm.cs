@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Net.Sockets;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.UI.WindowsAndMessaging;
@@ -22,6 +23,7 @@ namespace Netch.Forms;
 public partial class MainForm : Form
 {
     private readonly ToolTip _networkMetricsToolTip = new();
+    private CancellationTokenSource? _gameProbeCts;
     #region Start
 
     private readonly Dictionary<string, object> _mainFormText = new();
@@ -586,47 +588,103 @@ public partial class MainForm : Form
 
         StartedPingAsync().Forget();
         if (!string.IsNullOrWhiteSpace(mode.NetworkProbeTarget))
-            GameNetworkProbeAsync(mode).Forget();
+        {
+            _gameProbeCts?.Cancel();
+            _gameProbeCts = new CancellationTokenSource();
+            GameNetworkProbeAsync(mode, _gameProbeCts.Token).Forget();
+        }
     }
 
-    private async Task GameNetworkProbeAsync(Mode mode)
+    private async Task GameNetworkProbeAsync(Mode mode, CancellationToken cancellationToken)
     {
         var samples = new Queue<int>();
         var target = mode.NetworkProbeTarget.Trim();
+        var proxyProbe = TryParseProbeTarget(target, out var targetHost, out var targetPort);
+        var probeKind = proxyProbe ? "SOCKS5 TCP" : "direct ICMP";
         GameNetworkStatusLabel.Visible = true;
-        GameNetworkStatusLabel.ToolTipText = $"ICMP probes to {target}. This indicates target reachability and probe loss; it is not a measurement of encrypted game packets.";
+        GameNetworkStatusLabel.ToolTipText = proxyProbe
+            ? $"TCP connect probes to {target} through the active local SOCKS5 proxy. RTT and failed connects measure this probe path, not in-game UDP packets."
+            : $"Direct ICMP probes to {target}. In process mode this does not follow the game's proxy path. This is target reachability, not in-game packet loss.";
 
-        while (State == State.Started && ReferenceEquals(MainController.Mode, mode))
+        try
         {
-            var sample = -1;
-            try
+            while (!cancellationToken.IsCancellationRequested && State == State.Started && ReferenceEquals(MainController.Mode, mode))
             {
-                using var ping = new System.Net.NetworkInformation.Ping();
-                var reply = await ping.SendPingAsync(target, 1000);
-                if (reply.Status == System.Net.NetworkInformation.IPStatus.Success)
-                    sample = Convert.ToInt32(reply.RoundtripTime);
+                var sample = -1;
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromSeconds(2));
+                try
+                {
+                    if (proxyProbe && MainController.Socks5Server is { } localProxy)
+                    {
+                        sample = await Socks5ServerTestUtils.TcpConnectThroughSocksAsync(localProxy, targetHost, targetPort, timeout.Token) ?? -1;
+                    }
+                    else
+                    {
+                        using var ping = new System.Net.NetworkInformation.Ping();
+                        var reply = await ping.SendPingAsync(target, 1500).WaitAsync(timeout.Token);
+                        if (reply.Status == System.Net.NetworkInformation.IPStatus.Success)
+                            sample = Convert.ToInt32(reply.RoundtripTime);
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception exception) when (exception is ArgumentException or System.Net.NetworkInformation.PingException or InvalidOperationException or SocketException or IOException or OperationCanceledException)
+                {
+                    Log.Debug(exception, "Game network probe failed for {Target}", target);
+                }
+
+                samples.Enqueue(sample);
+                while (samples.Count > 20)
+                    samples.Dequeue();
+
+                var successful = samples.Where(value => value >= 0).ToArray();
+                var loss = (samples.Count - successful.Length) * 100 / samples.Count;
+                var median = successful.Length == 0 ? -1 : successful.OrderBy(value => value).ElementAt(successful.Length / 2);
+                GameNetworkStatusLabel.Text = median < 0
+                    ? $"Probe {probeKind}: -- / {loss}% failed"
+                    : $"Probe {probeKind}: {median}ms / {loss}% failed";
+
+                await Task.Delay(1000, cancellationToken);
             }
-            catch (Exception exception) when (exception is ArgumentException or System.Net.NetworkInformation.PingException or InvalidOperationException)
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Stopping the active profile ends the probe immediately.
+        }
+        finally
+        {
+            if (_gameProbeCts?.Token == cancellationToken)
             {
-                Log.Debug(exception, "Game network probe failed for {Target}", target);
+                _gameProbeCts.Dispose();
+                _gameProbeCts = null;
+                GameNetworkStatusLabel.Visible = false;
+                GameNetworkStatusLabel.Text = string.Empty;
             }
+        }
+    }
 
-            samples.Enqueue(sample);
-            while (samples.Count > 20)
-                samples.Dequeue();
-
-            var successful = samples.Where(value => value >= 0).ToArray();
-            var loss = (samples.Count - successful.Length) * 100 / samples.Count;
-            var average = successful.Length == 0 ? -1 : Convert.ToInt32(successful.Average());
-            GameNetworkStatusLabel.Text = average < 0
-                ? $"Game target: -- / {loss}% probe loss"
-                : $"Game target: {average}ms / {loss}% probe loss";
-
-            await Task.Delay(1000);
+    private static bool TryParseProbeTarget(string target, out string host, out ushort port)
+    {
+        host = target;
+        port = 0;
+        if (target.StartsWith("[", StringComparison.Ordinal))
+        {
+            if (!Uri.TryCreate($"tcp://{target}", UriKind.Absolute, out var ipv6Uri) || ipv6Uri.Port is < 1 or > ushort.MaxValue)
+                return false;
+            host = ipv6Uri.Host;
+            port = checked((ushort)ipv6Uri.Port);
+            return true;
         }
 
-        GameNetworkStatusLabel.Visible = false;
-        GameNetworkStatusLabel.Text = string.Empty;
+        var separator = target.LastIndexOf(':');
+        if (separator <= 0 || target.IndexOf(':') != separator || !ushort.TryParse(target[(separator + 1)..], out port) || port == 0)
+            return false;
+
+        host = target[..separator];
+        return true;
     }
 
     #endregion
@@ -1098,6 +1156,7 @@ public partial class MainForm : Form
     private async Task StopCoreAsync()
     {
         State = State.Stopping;
+        _gameProbeCts?.Cancel();
         _discoveryNatCts?.Cancel();
         _httpConnectCts?.Cancel();
         await MainController.StopAsync();

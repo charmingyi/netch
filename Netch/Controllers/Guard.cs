@@ -59,18 +59,21 @@ public abstract class Guard
     {
         State = State.Starting;
 
-        _logFileStream = new FileStream(LogPath, FileMode.Create, FileAccess.Write, FileShare.Read, 4096, true);
-        _logStreamWriter = new StreamWriter(_logFileStream) { AutoFlush = true };
-
-        Instance.StartInfo.Arguments = argument;
-        Instance.Start();
-        Global.Job.AddProcess(Instance);
-
-        if (priority != ProcessPriorityClass.Normal)
-            Instance.PriorityClass = priority;
-
-        if (RedirectOutput)
+        try
         {
+            _logFileStream = new FileStream(LogPath, FileMode.Create, FileAccess.Write, FileShare.Read, 4096, true);
+            _logStreamWriter = new StreamWriter(_logFileStream) { AutoFlush = true };
+
+            Instance.StartInfo.Arguments = argument;
+            Instance.Start();
+            Global.Job.AddProcess(Instance);
+
+            if (priority != ProcessPriorityClass.Normal)
+                Instance.PriorityClass = priority;
+
+            if (!RedirectOutput)
+                return;
+
             ReadOutputAsync(Instance.StandardOutput).Forget();
             ReadOutputAsync(Instance.StandardError).Forget();
 
@@ -100,6 +103,12 @@ public abstract class Guard
             await StopGuardAsync();
             throw new MessageException($"{Name} 控制器启动超时");
         }
+        catch
+        {
+            if (State != State.Stopped)
+                await StopGuardAsync();
+            throw;
+        }
     }
 
     private async Task ReadOutputAsync(TextReader reader)
@@ -107,7 +116,20 @@ public abstract class Guard
         string? line;
         while ((line = await reader.ReadLineAsync()) != null)
         {
-            await _logStreamWriter!.WriteLineAsync(line);
+            try
+            {
+                if (_logStreamWriter != null)
+                    await _logStreamWriter.WriteLineAsync(line);
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            catch (IOException)
+            {
+                return;
+            }
+
             OnReadNewLine(line);
 
             if (State == State.Starting)
@@ -134,13 +156,30 @@ public abstract class Guard
         {
             if (Instance is { HasExited: false })
             {
-                Instance.Kill();
-                await Instance.WaitForExitAsync();
+                try
+                {
+                    Instance.Kill(entireProcessTree: true);
+                }
+                catch (PlatformNotSupportedException)
+                {
+                    Instance.Kill();
+                }
+
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                await Instance.WaitForExitAsync(timeout.Token);
             }
+        }
+        catch (OperationCanceledException e)
+        {
+            Log.Error(e, "Stop {Name} timed out", Name);
+        }
+        catch (InvalidOperationException)
+        {
+            // The child process may have exited before its start/stop callback completed.
         }
         catch (Exception e)
         {
-            Log.Error(e, "Stop {Name} failed", Instance.ProcessName);
+            Log.Error(e, "Stop {Name} failed", Name);
         }
         finally
         {

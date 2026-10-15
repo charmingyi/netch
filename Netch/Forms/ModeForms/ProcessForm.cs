@@ -43,7 +43,7 @@ public partial class ProcessForm : BindingForm
         var g = Global.Settings.Redirector;
         BindTextBox(RemarkTextBox, _ => true, s => _mode.i18NRemark = s, _mode.i18NRemark);
         BindTextBox(HealthCheckTargetTextBox,
-            s => string.IsNullOrWhiteSpace(s) || Uri.CheckHostName(s) != UriHostNameType.Unknown,
+            ModeProbeTargetUtils.IsValid,
             s => _mode.NetworkProbeTarget = s.Trim(),
             _mode.NetworkProbeTarget);
         BindSyncGlobalCheckBox(HandleTCPCheckBox, b => _mode.FilterTCP = b, _mode.FilterTCP, g.FilterTCP);

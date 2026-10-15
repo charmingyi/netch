@@ -35,7 +35,7 @@ public partial class RouteForm : BindingForm
 
         BindTextBox(RemarkTextBox, _ => true, s => _mode.i18NRemark = s, _mode.i18NRemark);
         BindTextBox(HealthCheckTargetTextBox,
-            s => string.IsNullOrWhiteSpace(s) || Uri.CheckHostName(s) != UriHostNameType.Unknown,
+            ModeProbeTargetUtils.IsValid,
             s => _mode.NetworkProbeTarget = s.Trim(),
             _mode.NetworkProbeTarget);
         // TODO Options Not implemented

@@ -95,4 +95,14 @@ public static class NetworkInterfaceExtension
 
         mo.InvokeMethod("SetDNSServerSearchOrder", inPar, null);
     }
+
+    public static void RestoreDns(this NetworkInterface ni, IReadOnlyCollection<IPAddress> servers)
+    {
+        var wmi = new ManagementClass("Win32_NetworkAdapterConfiguration");
+        var mo = wmi.GetInstances().Cast<ManagementObject>()
+            .First(item => item["Description"].ToString() == ni.Description);
+        var parameters = mo.GetMethodParameters("SetDNSServerSearchOrder");
+        parameters["DNSServerSearchOrder"] = servers.Count == 0 ? null : servers.Select(server => server.ToString()).ToArray();
+        mo.InvokeMethod("SetDNSServerSearchOrder", parameters, null);
+    }
 }
