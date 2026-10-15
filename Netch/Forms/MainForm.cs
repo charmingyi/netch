@@ -649,20 +649,23 @@ public partial class MainForm : Form
         // 自动检测延迟
         async Task StartedPingAsync()
         {
+            var intervalSeconds = Global.Settings.StartedPingInterval > 0
+                ? Math.Clamp(Global.Settings.StartedPingInterval, 5, 300)
+                : 30;
             while (State == State.Started)
             {
-                if (Global.Settings.StartedPingInterval > 0)
+                try
                 {
                     await server.PingAsync();
                     ServerComboBox.Refresh();
                     RefreshEntryLatencyDiagnostic();
-
-                    await Task.Delay(Global.Settings.StartedPingInterval * 1000);
                 }
-                else
+                catch (Exception exception)
                 {
-                    await Task.Delay(5000);
+                    Log.Debug(exception, "Automatic entry-node latency probe failed");
                 }
+
+                await Task.Delay(intervalSeconds * 1000);
             }
         }
 
@@ -679,6 +682,11 @@ public partial class MainForm : Form
             _gameProbeCts?.Cancel();
             _gameProbeCts = new CancellationTokenSource();
             GameNetworkProbeAsync(mode, _gameProbeCts.Token).Forget();
+        }
+        else
+        {
+            _gameDiagnosticLabel.Text = "游戏全链路：当前模式未配置游戏探测目标";
+            _gameDiagnosticLabel.ForeColor = SystemColors.ControlText;
         }
     }
 
@@ -1475,6 +1483,7 @@ public partial class MainForm : Form
         UpdateNatTypeStatusLabelText(i18N.Translate("Testing NAT Type"));
 
         _discoveryNatCts = new CancellationTokenSource();
+        _discoveryNatCts.CancelAfter(TimeSpan.FromSeconds(18));
 
         try
         {
@@ -1520,7 +1529,12 @@ public partial class MainForm : Form
         }
         catch (OperationCanceledException) when (_discoveryNatCts?.IsCancellationRequested == true)
         {
-            // The user stopped the NAT probe or the active connection was stopped.
+            if (State == State.Started)
+            {
+                UpdateNatTypeStatusLabelText("检测超时");
+                _networkMetricsToolTip.SetToolTip(_natDiagnosticLabel,
+                    "STUN 探测超过 18 秒。请检查出口是否允许 UDP，或在设置中更换 STUN 服务器。");
+            }
         }
         catch (Exception exception)
         {
@@ -1546,6 +1560,7 @@ public partial class MainForm : Form
         HttpStatusLabel.Enabled = false;
 
         _httpConnectCts = new CancellationTokenSource();
+        _httpConnectCts.CancelAfter(TimeSpan.FromSeconds(18));
 
         try
         {
@@ -1562,7 +1577,7 @@ public partial class MainForm : Form
             else
             {
                 HttpStatusLabel.Text = $"HTTP{i18N.Translate(": ", "Timeout")}";
-                _proxyDiagnosticLabel.Text = "代理连通性：HTTP 超时";
+                _proxyDiagnosticLabel.Text = "代理连通性：探测目标均失败";
                 _proxyDiagnosticLabel.ForeColor = Color.Firebrick;
             }
 
@@ -1575,9 +1590,12 @@ public partial class MainForm : Form
         catch (Exception exception)
         {
             Log.Warning(exception, "Proxy connectivity check failed");
-            _proxyDiagnosticLabel.Text = "代理连通性：检测失败";
+            _proxyDiagnosticLabel.Text = exception is OperationCanceledException
+                ? "代理连通性：检测超时"
+                : "代理连通性：检测失败";
             _proxyDiagnosticLabel.ForeColor = Color.Firebrick;
-            _networkMetricsToolTip.SetToolTip(_proxyDiagnosticLabel, exception.Message);
+            _networkMetricsToolTip.SetToolTip(_proxyDiagnosticLabel,
+                $"依次检查多个 HTTP 目标后失败。详细原因：{exception.Message}");
         }
         finally
         {

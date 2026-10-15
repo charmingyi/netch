@@ -211,19 +211,6 @@ public static class MainController
     public static Task<int?> HttpConnectAsync(CancellationToken ctx = default)
     {
         Debug.Assert(Socks5Server != null, nameof(Socks5Server) + " != null");
-        try
-        {
-            return Socks5ServerTestUtils.HttpConnectAsync(Socks5Server, ctx);
-        }
-        catch (OperationCanceledException)
-        {
-            // ignored
-        }
-        catch (Exception e)
-        {
-            Log.Warning(e, "Unhandled Socks5ServerTestUtils.HttpConnectAsync Exception");
-        }
-
-        return Task.FromResult<int?>(null);
+        return Socks5ServerTestUtils.HttpConnectAsync(Socks5Server, ctx);
     }
 }

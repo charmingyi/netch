@@ -126,8 +126,8 @@ public static class Socks5ServerTestUtils
         // NAT classifier needs. Several common WebRTC STUN hosts only do binding.
         var candidates = new List<(string Host, ushort Port)>
         {
-            ("stun.voipgate.com", 3478),
-            (Global.Settings.STUN_Server, configuredPort)
+            (Global.Settings.STUN_Server, configuredPort),
+            ("stun.voipgate.com", 3478)
         };
         try
         {
@@ -148,15 +148,15 @@ public static class Socks5ServerTestUtils
 
         var errors = new List<string>();
         NatTypeTestResult? basicBindingResult = null;
-        // Try every configured fallback. A STUN endpoint can resolve successfully
-        // but lack RFC 5780 behavior tests, while another server in the list works.
-        foreach (var (stunServer, port) in candidates)
+        // A failed STUN server must not leave the UI spinning through a long user
+        // supplied list. Try the configured server and at most three fallbacks.
+        foreach (var (stunServer, port) in candidates.Distinct().Take(4))
         {
             ctx.ThrowIfCancellationRequested();
             Log.Debug("Testing NAT through STUN server {StunServer}:{Port}", stunServer, port);
             var ip = IPAddress.TryParse(stunServer, out var literalAddress)
                 ? literalAddress
-                : await DnsUtils.LookupAsync(stunServer, timeout: 1500);
+                : await DnsUtils.LookupAsync(stunServer, timeout: 1000);
             if (ip == null)
             {
                 errors.Add($"{stunServer}: DNS lookup failed");
@@ -173,7 +173,7 @@ public static class Socks5ServerTestUtils
             using IUdpProxy proxy = ProxyFactory.CreateProxy(ProxyType.Socks5, new IPEndPoint(IPAddress.Loopback, 0), socks5Option);
             using var client = new StunClient5389UDP(new IPEndPoint(ip, port), new IPEndPoint(IPAddress.Any, 0), proxy);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ctx);
-            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+            timeout.CancelAfter(TimeSpan.FromSeconds(2));
             try
             {
                 await client.ConnectProxyAsync(timeout.Token);
@@ -276,9 +276,11 @@ public static class Socks5ServerTestUtils
 
     public static async Task<int?> HttpConnectAsync(Socks5Server socks5, CancellationToken ctx)
     {
+        // Some networks block the default connectivity-check host. Try several
+        // independent, lightweight HTTP endpoints before declaring the proxy down.
         var socks5Option = new Socks5CreateOption
         {
-            Address = await DnsUtils.LookupAsync(socks5.Hostname),
+            Address = await DnsUtils.LookupAsync(socks5.Hostname, timeout: 1500),
             Port = socks5.Port,
             UsernamePassword = new UsernamePassword
             {
@@ -287,14 +289,42 @@ public static class Socks5ServerTestUtils
             }
         };
 
-        var stopwatch = Stopwatch.StartNew();
+        if (socks5Option.Address == null)
+            throw new IOException($"Cannot resolve local SOCKS5 proxy host: {socks5.Hostname}");
 
-        var result = await Socks5.Utils.Socks5TestUtils.Socks5ConnectAsync(socks5Option, token: ctx);
+        var failures = new List<string>();
+        foreach (var (host, path) in new[]
+                 {
+                     ("www.google.com", "/generate_204"),
+                     ("cp.cloudflare.com", "/"),
+                     ("connectivitycheck.gstatic.com", "/generate_204"),
+                     ("connect.rom.miui.com", "/generate_204")
+                 })
+        {
+            ctx.ThrowIfCancellationRequested();
+            var stopwatch = Stopwatch.StartNew();
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ctx);
+            timeout.CancelAfter(TimeSpan.FromSeconds(4));
+            try
+            {
+                if (await Socks5.Utils.Socks5TestUtils.Socks5ConnectAsync(socks5Option, host, path, 80, timeout.Token))
+                {
+                    stopwatch.Stop();
+                    return Convert.ToInt32(stopwatch.Elapsed.TotalMilliseconds);
+                }
 
-        stopwatch.Stop();
-        if (result)
-            return Convert.ToInt32(stopwatch.Elapsed.TotalMilliseconds);
+                failures.Add($"{host}: HTTP check rejected");
+            }
+            catch (OperationCanceledException) when (!ctx.IsCancellationRequested)
+            {
+                failures.Add($"{host}: timed out");
+            }
+            catch (Exception exception) when (!ctx.IsCancellationRequested)
+            {
+                failures.Add($"{host}: {exception.GetType().Name}: {exception.Message}");
+            }
+        }
 
-        return null;
+        throw new IOException("All proxy HTTP checks failed. " + string.Join("; ", failures));
     }
 }
