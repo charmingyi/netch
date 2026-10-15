@@ -607,9 +607,11 @@
             //
             // GameNetworkStatusLabel
             //
+            this.GameNetworkStatusLabel.AutoSize = false;
             this.GameNetworkStatusLabel.Name = "GameNetworkStatusLabel";
-            this.GameNetworkStatusLabel.Size = new System.Drawing.Size(0, 17);
+            this.GameNetworkStatusLabel.Size = new System.Drawing.Size(175, 17);
             this.GameNetworkStatusLabel.Text = "";
+            this.GameNetworkStatusLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.GameNetworkStatusLabel.Visible = false;
             // 
             // ControlButton

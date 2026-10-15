@@ -610,7 +610,7 @@ public partial class MainForm : Form
         var latencySamples = new Queue<int>();
         string? lastEndpoint = null;
         GameNetworkStatusLabel.Visible = true;
-        GameNetworkStatusLabel.ToolTipText = "The endpoint is learned from this game's live UDP traffic. RTT is an ICMP probe to that endpoint; estimated loss is inferred from incoming UDP timing gaps, not decoded game sequence numbers.";
+        GameNetworkStatusLabel.ToolTipText = "全链路探测会通过当前 SOCKS5 代理（包含入口、链路节点和落地）连接游戏实时 UDP 流量发现的服务器端点。端到端 TCP 建连时间不是游戏 UDP 协议 RTT；UDP 丢包为按入站包间隔估算，未解码游戏序号。";
 
         try
         {
@@ -619,7 +619,7 @@ public partial class MainForm : Form
                 var snapshot = GameTrafficMonitor.GetSnapshot();
                 if (snapshot == null)
                 {
-                    GameNetworkStatusLabel.Text = "Game: waiting for game UDP traffic";
+                    GameNetworkStatusLabel.Text = "游戏端点等待中";
                     await Task.Delay(1000, cancellationToken);
                     continue;
                 }
@@ -633,33 +633,40 @@ public partial class MainForm : Form
                 var latency = -1;
                 try
                 {
-                    using var ping = new System.Net.NetworkInformation.Ping();
-                    var reply = await ping.SendPingAsync(snapshot.RemoteAddress, 1000).WaitAsync(TimeSpan.FromSeconds(2), cancellationToken);
-                    if (reply.Status == System.Net.NetworkInformation.IPStatus.Success)
-                        latency = Convert.ToInt32(reply.RoundtripTime);
+                    if (MainController.Socks5Server is { } localProxy)
+                    {
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        timeout.CancelAfter(TimeSpan.FromSeconds(2));
+                        latency = await Socks5ServerTestUtils.TcpConnectThroughSocksAsync(
+                            localProxy, snapshot.RemoteAddress.ToString(), snapshot.RemotePort, timeout.Token) ?? -1;
+                    }
                 }
-                catch (Exception exception) when (exception is ArgumentException or System.Net.NetworkInformation.PingException or InvalidOperationException or SocketException or IOException or OperationCanceledException)
+                catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or SocketException or IOException or OperationCanceledException)
                 {
                     if (exception is OperationCanceledException && cancellationToken.IsCancellationRequested)
                         break;
-                    Log.Debug(exception, "Game endpoint ICMP probe failed for {Endpoint}", snapshot.Endpoint);
+                    Log.Debug(exception, "Game endpoint full-path TCP probe failed for {Endpoint}", snapshot.Endpoint);
                 }
 
                 latencySamples.Enqueue(latency);
                 while (latencySamples.Count > 10)
                     latencySamples.Dequeue();
-                var successfulPings = latencySamples.Where(value => value >= 0).OrderBy(value => value).ToArray();
-                var latencyText = successfulPings.Length == 0
-                    ? "ICMP --"
-                    : $"ICMP {successfulPings[successfulPings.Length / 2]}ms";
+                var successfulProbes = latencySamples.Where(value => value >= 0).OrderBy(value => value).ToArray();
+                var latencyText = successfulProbes.Length == 0
+                    ? "TCP --"
+                    : $"TCP {successfulProbes[successfulProbes.Length / 2]}ms";
                 var lossText = snapshot.EstimatedReceiveLossPercent is { } loss
-                    ? $"UDP loss≈{loss:0.#}%"
-                    : "UDP loss --";
+                    ? $"UDP≈{loss:0.#}%"
+                    : "UDP≈--";
+                var compactLoss = snapshot.EstimatedReceiveLossPercent is { } estimatedLoss
+                    ? $"{estimatedLoss:0.#}%"
+                    : "--";
 
-                GameNetworkStatusLabel.Text = $"{snapshot.GameName} {latencyText} / {lossText}";
-                GameNetworkStatusLabel.ToolTipText = $"Detected game endpoint: {snapshot.Endpoint}\n" +
-                    $"Current UDP rate: receive {snapshot.ReceivePacketsPerSecond}/s, send {snapshot.SendPacketsPerSecond}/s; incoming stalls: {snapshot.ReceiveStalls}.\n" +
-                    "RTT is the median of recent ICMP probes to the endpoint. It is unavailable when the server blocks ICMP and may not follow the proxy path. UDP loss is an estimate from gaps in the incoming packet cadence, not protocol-confirmed loss. The game may report its own latency differently.";
+                GameNetworkStatusLabel.Text = $"全链路 {latencyText} {lossText}";
+                GameNetworkStatusLabel.ToolTipText = $"游戏：{snapshot.GameName}\n自动发现端点：{snapshot.Endpoint}\n" +
+                    $"完整链路 TCP 建连：{latencyText}（通过当前 SOCKS5 代理，覆盖入口到落地，再到该 IP:端口；目标为游戏 UDP 流量发现的端点）。\n" +
+                    $"游戏 UDP：接收 {snapshot.ReceivePacketsPerSecond} 包/秒，发送 {snapshot.SendPacketsPerSecond} 包/秒，检测到 {snapshot.ReceiveStalls} 次接收停顿；丢包≈{compactLoss}。\n" +
+                    "TCP 建连时间不能等同于游戏 UDP 协议 RTT；如果该端口只接受 UDP 或拒绝 TCP，将显示 TCP --，不会退回显示入口延迟。UDP 丢包由入站包间隔估算，未解码游戏序号，属于近似值。";
 
                 await Task.Delay(2000, cancellationToken);
             }
