@@ -88,6 +88,9 @@ public class ModeService
                 "Global.json" => 0,
                 "绕过中国大陆 IP 代理.txt" => 1,
                 "仅 Chrome 代理.json" => 2,
+                "eFootball.json" => 3,
+                "暗黑破坏神4.json" => 4,
+                "战地6.json" => 5,
                 _ => int.MaxValue
             };
         }

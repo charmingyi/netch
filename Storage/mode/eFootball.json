@@ -1,0 +1,24 @@
+{
+  "type": "ProcessMode",
+  "remark": {
+    "zh-CN": "eFootball 代理",
+    "en": "eFootball proxy"
+  },
+  "handle": [
+    "eFootball\\.exe"
+  ],
+  "bypass": [
+    "\\\\Netch\\\\"
+  ],
+  "filterIntranet": true,
+  "filterLoopback": false,
+  "dnsHost": "1.1.1.1:53",
+  "handleOnlyDNS": null,
+  "icmpDelay": 10,
+  "filterParent": null,
+  "filterDNS": true,
+  "filterUDP": true,
+  "filterTCP": true,
+  "filterICMP": true,
+  "dnsProxy": null
+}
