@@ -10,6 +10,12 @@ public abstract class Mode
 
     public Dictionary<string, string> Remark { get; set; } = new();
 
+    /// <summary>
+    ///     Optional game/server address used for live ICMP RTT and probe-loss display.
+    ///     This is an active probe and does not represent loss inside the game protocol.
+    /// </summary>
+    public string NetworkProbeTarget { get; set; } = string.Empty;
+
     [JsonIgnore]
     // File FullName
     // TODO maybe make it becomes mode dictionary key

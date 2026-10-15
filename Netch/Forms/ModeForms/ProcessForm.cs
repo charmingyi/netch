@@ -42,6 +42,10 @@ public partial class ProcessForm : BindingForm
 
         var g = Global.Settings.Redirector;
         BindTextBox(RemarkTextBox, _ => true, s => _mode.i18NRemark = s, _mode.i18NRemark);
+        BindTextBox(HealthCheckTargetTextBox,
+            s => string.IsNullOrWhiteSpace(s) || Uri.CheckHostName(s) != UriHostNameType.Unknown,
+            s => _mode.NetworkProbeTarget = s.Trim(),
+            _mode.NetworkProbeTarget);
         BindSyncGlobalCheckBox(HandleTCPCheckBox, b => _mode.FilterTCP = b, _mode.FilterTCP, g.FilterTCP);
         BindSyncGlobalCheckBox(HandleUDPCheckBox, b => _mode.FilterUDP = b, _mode.FilterUDP, g.FilterUDP);
         BindSyncGlobalCheckBox(HandleDNSCheckBox, b => _mode.FilterDNS = b, _mode.FilterDNS, g.FilterDNS);

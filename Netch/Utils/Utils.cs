@@ -34,19 +34,20 @@ public static class Utils
         using var client = new TcpClient(ip.AddressFamily);
 
         var stopwatch = Stopwatch.StartNew();
-
-        var task = client.ConnectAsync(ip, port);
-
-        var resTask = await Task.WhenAny(task, Task.Delay(timeout, ct));
-
-        stopwatch.Stop();
-        if (resTask == task && client.Connected)
+        try
         {
-            var t = Convert.ToInt32(stopwatch.Elapsed.TotalMilliseconds);
-            return t;
+            await client.ConnectAsync(ip, port).WaitAsync(TimeSpan.FromMilliseconds(timeout), ct);
+            stopwatch.Stop();
+            return Convert.ToInt32(stopwatch.Elapsed.TotalMilliseconds);
         }
-
-        return timeout;
+        catch (TimeoutException)
+        {
+            return -1;
+        }
+        catch (SocketException)
+        {
+            return -1;
+        }
     }
 
     public static async Task<int> ICMPingAsync(IPAddress ip, int timeout = 1000)
@@ -56,7 +57,7 @@ public static class Utils
         if (reply.Status == IPStatus.Success)
             return Convert.ToInt32(reply.RoundtripTime);
 
-        return timeout;
+        return -1;
     }
 
     public static async Task<string> GetCityCodeAsync(string address)

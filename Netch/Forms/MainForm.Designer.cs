@@ -77,6 +77,7 @@
             this.HttpStatusLabel = new System.Windows.Forms.ToolStripStatusLabel();
             this.NatTypeStatusLabel = new System.Windows.Forms.ToolStripStatusLabel();
             this.NatTypeStatusLightLabel = new System.Windows.Forms.ToolStripStatusLabel();
+            this.GameNetworkStatusLabel = new System.Windows.Forms.ToolStripStatusLabel();
             this.ControlButton = new System.Windows.Forms.Button();
             this.NotifyIcon = new System.Windows.Forms.NotifyIcon(this.components);
             this.NotifyMenu = new System.Windows.Forms.ContextMenuStrip(this.components);
@@ -533,7 +534,8 @@
             this.blankToolStripStatusLabel,
             this.HttpStatusLabel,
             this.NatTypeStatusLabel,
-            this.NatTypeStatusLightLabel});
+            this.NatTypeStatusLightLabel,
+            this.GameNetworkStatusLabel});
             this.StatusStrip.Location = new System.Drawing.Point(0, 272);
             this.StatusStrip.Name = "StatusStrip";
             this.StatusStrip.Size = new System.Drawing.Size(740, 22);
@@ -602,6 +604,13 @@
             this.NatTypeStatusLightLabel.Text = "⬤";
             this.NatTypeStatusLightLabel.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
             this.NatTypeStatusLightLabel.Click += new System.EventHandler(this.NatTypeStatusLabel_Click);
+            //
+            // GameNetworkStatusLabel
+            //
+            this.GameNetworkStatusLabel.Name = "GameNetworkStatusLabel";
+            this.GameNetworkStatusLabel.Size = new System.Drawing.Size(0, 17);
+            this.GameNetworkStatusLabel.Text = "";
+            this.GameNetworkStatusLabel.Visible = false;
             // 
             // ControlButton
             // 
@@ -804,6 +813,7 @@
         private System.Windows.Forms.ToolStripLabel NewVersionLabel;
         private System.Windows.Forms.ToolStripLabel VersionLabel;
         private System.Windows.Forms.ToolStripStatusLabel NatTypeStatusLightLabel;
+        private System.Windows.Forms.ToolStripStatusLabel GameNetworkStatusLabel;
         private System.Windows.Forms.ToolStripStatusLabel blankToolStripStatusLabel;
         private System.Windows.Forms.ToolStripMenuItem FAQToolStripMenuItem;
 

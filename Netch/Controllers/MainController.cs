@@ -29,8 +29,17 @@ public static class MainController
 
         Log.Information("Start MainController: {Server} {Mode}", $"{server.Type}", $"[{(int)mode.Type}]{mode.i18NRemark}");
 
-        if (await DnsUtils.LookupAsync(server.Hostname) == null)
-            throw new MessageException(i18N.Translate("Lookup Server hostname failed"));
+        IReadOnlyList<Server> serversToResolve = server is ProxyChainServer chain
+            ? chain.Nodes
+            : new[] { server };
+        if (serversToResolve.Count < 1)
+            throw new MessageException("The proxy chain is empty.");
+
+        foreach (var node in serversToResolve)
+        {
+            if (await DnsUtils.LookupAsync(node.Hostname) == null)
+                throw new MessageException($"Lookup proxy node hostname failed: {node.Hostname}");
+        }
 
         // TODO Disable NAT Type Test setting
         // cache STUN Server ip to prevent "Wrong STUN Server"

@@ -23,16 +23,31 @@ Some features may not be implemented in version 1
 
 ### Protocols
 - [`Socks5`](https://www.wikiwand.com/en/SOCKS)
+- SOCKS4 / SOCKS4A
+- HTTP proxy
 - [`Shadowsocks`](https://shadowsocks.org)
 - [`ShadowsocksR`](https://github.com/shadowsocksrr/shadowsocksr-libev)
 - [`WireGuard`](https://www.wireguard.com)
 - [`Trojan`](https://trojan-gfw.github.io/trojan)
 - [`VMess`](https://www.v2fly.org)
 - [`VLESS`](https://xtls.github.io)
+- Multi-hop proxy chains for supported outbound protocols
 
 ### Others
 - UDP NAT FullCone (Limited by your server)
 - .NET 6.0 x64
+
+Process and route modes can be managed as user presets. Process modes can define
+a game server address for live ICMP reachability, latency, and probe-loss display.
+This active probe does not measure loss inside encrypted game traffic.
+
+NAT discovery runs through the active proxy and reports mapping and filtering
+behavior from the configured STUN service. Results depend on the proxy's UDP
+support and the test service.
+
+Proxy chains can contain two to five nodes. Add them in entry-to-exit order; the
+current SagerNet core routes the exit connection through the preceding node.
+UDP behavior depends on the selected protocols and upstream core support.
 
 ## Sponsor
 <a href="https://www.jetbrains.com/?from=Netch"><img src="jetbrains.svg" alt="JetBrains" width="200"/></a>

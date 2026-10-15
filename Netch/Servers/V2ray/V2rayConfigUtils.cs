@@ -18,6 +18,7 @@ public static class V2rayConfigUtils
                     port = Global.Settings.Socks5LocalPort,
                     protocol = "socks",
                     listen = Global.Settings.LocalAddress,
+                    tag = "netch-inbound",
                     settings = new
                     {
                         auth = "noauth",
@@ -32,6 +33,39 @@ public static class V2rayConfigUtils
         return v2rayConfig;
     }
 
+    public static async Task<V2rayConfig> GenerateClientConfigAsync(IReadOnlyList<Server> chain)
+    {
+        if (chain.Count is < 2 or > 5)
+            throw new ArgumentOutOfRangeException(nameof(chain), "A proxy chain must contain between two and five nodes.");
+        if (chain.Any(node => node is ProxyChainServer))
+            throw new ArgumentException("Proxy chains cannot contain other proxy chains.", nameof(chain));
+
+        var config = await GenerateClientConfigAsync(chain[0]);
+        var outbounds = new Outbound[chain.Count];
+        for (var index = 0; index < chain.Count; index++)
+        {
+            outbounds[index] = await outbound(chain[index]);
+            outbounds[index].tag = $"netch-chain-{index}";
+            if (index > 0)
+                outbounds[index].proxySettings = new OutboundProxySettings { tag = $"netch-chain-{index - 1}" };
+        }
+
+        config.outbounds = outbounds;
+        config.routing = new Routing
+        {
+            rules = new[]
+            {
+                new RoutingRule
+                {
+                    type = "field",
+                    inboundTag = new[] { "netch-inbound" },
+                    outboundTag = $"netch-chain-{chain.Count - 1}"
+                }
+            }
+        };
+        return config;
+    }
+
     private static async Task<Outbound> outbound(Server server)
     {
         var outbound = new Outbound
@@ -42,6 +76,29 @@ public static class V2rayConfigUtils
 
         switch (server)
         {
+            case HttpProxyServer http:
+                outbound.protocol = "http";
+                outbound.settings.servers = new object[]
+                {
+                    new
+                    {
+                        address = await server.AutoResolveHostnameAsync(),
+                        port = server.Port,
+                        users = http.Auth()
+                            ? new[]
+                            {
+                                new
+                                {
+                                    user = http.Username,
+                                    pass = http.Password ?? string.Empty
+                                }
+                            }
+                            : null
+                    }
+                };
+                outbound.mux.enabled = false;
+                outbound.mux.concurrency = -1;
+                break;
             case Socks5Server socks:
             {
                 outbound.protocol = "socks";

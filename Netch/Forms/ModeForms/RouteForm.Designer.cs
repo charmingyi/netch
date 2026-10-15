@@ -51,6 +51,8 @@ namespace Netch.Forms.ModeForms
             this.FilenameLabel = new System.Windows.Forms.Label();
             this.FilenameTextBox = new System.Windows.Forms.TextBox();
             this.ControlButton = new System.Windows.Forms.Button();
+            this.HealthCheckTargetLabel = new System.Windows.Forms.Label();
+            this.HealthCheckTargetTextBox = new System.Windows.Forms.TextBox();
             this.NamePanel = new System.Windows.Forms.Panel();
             this.ConfigurationLayoutPanel = new System.Windows.Forms.TableLayoutPanel();
             this.ConfigurationGroupBox = new System.Windows.Forms.GroupBox();
@@ -292,10 +294,28 @@ namespace Netch.Forms.ModeForms
             this.NamePanel.Controls.Add(this.FilenameLabel);
             this.NamePanel.Controls.Add(this.FilenameTextBox);
             this.NamePanel.Controls.Add(this.ControlButton);
+            this.NamePanel.Controls.Add(this.HealthCheckTargetLabel);
+            this.NamePanel.Controls.Add(this.HealthCheckTargetTextBox);
             this.NamePanel.Location = new System.Drawing.Point(208, 3);
             this.NamePanel.Name = "NamePanel";
-            this.NamePanel.Size = new System.Drawing.Size(512, 72);
+            this.NamePanel.Size = new System.Drawing.Size(512, 104);
             this.NamePanel.TabIndex = 0;
+            //
+            // HealthCheckTargetLabel
+            //
+            this.HealthCheckTargetLabel.AutoSize = true;
+            this.HealthCheckTargetLabel.Location = new System.Drawing.Point(8, 72);
+            this.HealthCheckTargetLabel.Name = "HealthCheckTargetLabel";
+            this.HealthCheckTargetLabel.Size = new System.Drawing.Size(145, 17);
+            this.HealthCheckTargetLabel.TabIndex = 5;
+            this.HealthCheckTargetLabel.Text = "Game server probe host";
+            //
+            // HealthCheckTargetTextBox
+            //
+            this.HealthCheckTargetTextBox.Location = new System.Drawing.Point(160, 69);
+            this.HealthCheckTargetTextBox.Name = "HealthCheckTargetTextBox";
+            this.HealthCheckTargetTextBox.Size = new System.Drawing.Size(341, 23);
+            this.HealthCheckTargetTextBox.TabIndex = 6;
             // 
             // ConfigurationLayoutPanel
             // 
@@ -376,6 +396,8 @@ namespace Netch.Forms.ModeForms
         private System.Windows.Forms.TableLayoutPanel ConfigurationLayoutPanel;
         private System.Windows.Forms.CheckBox UseCustomDNSCheckBox;
         private System.Windows.Forms.Button ControlButton;
+        private System.Windows.Forms.Label HealthCheckTargetLabel;
+        private System.Windows.Forms.TextBox HealthCheckTargetTextBox;
         private System.Windows.Forms.GroupBox ConfigurationGroupBox;
     }
 }

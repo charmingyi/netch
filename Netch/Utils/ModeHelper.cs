@@ -42,6 +42,7 @@ public static class ModeHelper
 
     public static void WriteFile(this Mode mode)
     {
+        Directory.CreateDirectory(Path.GetDirectoryName(mode.FullName)!);
         using var fs = new FileStream(mode.FullName, FileMode.Create, FileAccess.Write, FileShare.None, 4096, true);
         JsonSerializer.Serialize(fs, mode, JsonSerializerOptions);
     }
@@ -52,7 +53,7 @@ public static class ModeHelper
         var ls = File.ReadAllLines(file);
         string modeTypeNum;
 
-        if (ls.First().First() != '#')
+        if (ls.Length == 0 || string.IsNullOrWhiteSpace(ls[0]) || ls[0][0] != '#')
             throw new FormatException("Not a valid txt mode that begins with meta line");
 
         var heads = ls[0][1..].Split(",", StringSplitOptions.TrimEntries);
@@ -110,7 +111,7 @@ public static class ModeHelper
                     if (includeMode is TunMode tMode)
                     {
                         tunMode.Bypass.AddRange(tMode.Bypass);
-                        tMode.Handle.AddRange(tMode.Handle);
+                        tunMode.Handle.AddRange(tMode.Handle);
                         break;
                     }
 

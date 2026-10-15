@@ -14,16 +14,32 @@ public class ModeService
 
     public string GetRelativePath(string fullName)
     {
-        var length = ModeDirectoryFullName.Length;
-        if (!ModeDirectoryFullName.EndsWith("\\"))
-            length++;
+        var root = Path.GetFullPath(ModeDirectoryFullName);
+        var path = Path.GetFullPath(fullName);
+        if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Mode file is outside the mode directory", nameof(fullName));
 
-        return fullName.Substring(length);
+        return Path.GetRelativePath(root, path);
     }
 
     public string GetFullPath(string relativeName)
     {
-        return Path.Combine(ModeDirectoryFullName, relativeName);
+        var root = Path.GetFullPath(ModeDirectoryFullName);
+        var path = Path.GetFullPath(Path.Combine(root, relativeName));
+        if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Mode path must stay inside the mode directory", nameof(relativeName));
+
+        return path;
+    }
+
+    public bool IsCustomMode(Mode mode)
+    {
+        if (string.IsNullOrWhiteSpace(mode.FullName))
+            return false;
+
+        var path = Path.GetFullPath(mode.FullName);
+        var customRoot = Path.GetFullPath(Path.Combine(ModeDirectoryFullName, "Custom"));
+        return path.StartsWith(customRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     public void Load()
@@ -75,6 +91,7 @@ public class ModeService
         Global.Modes.Add(mode);
         Sort();
 
+        Directory.CreateDirectory(Path.GetDirectoryName(mode.FullName)!);
         mode.WriteFile();
     }
 
@@ -88,6 +105,9 @@ public class ModeService
     {
         if (mode.FullName == null)
             throw new ArgumentException(nameof(mode.FullName));
+
+        if (!Instance.IsCustomMode(mode))
+            throw new InvalidOperationException("Only custom modes can be deleted. Built-in modes are protected.");
 
         Global.MainForm.ModeComboBox.Items.Remove(mode);
         Global.Modes.Remove(mode);

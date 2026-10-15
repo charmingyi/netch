@@ -13,6 +13,12 @@ public abstract class Server : ICloneable
     public int Delay { get; private set; } = -1;
 
     /// <summary>
+    ///     最近一次探测中未能建立连接的比例（百分比）。这是到节点的探测结果，不代表游戏协议自身的丢包率。
+    /// </summary>
+    [JsonIgnore]
+    public int LossPercent { get; private set; } = 100;
+
+    /// <summary>
     ///     组
     /// </summary>
     public string Group { get; set; } = Constants.DefaultGroup;
@@ -20,12 +26,12 @@ public abstract class Server : ICloneable
     /// <summary>
     ///     地址
     /// </summary>
-    public string Hostname { get; set; } = string.Empty;
+    public virtual string Hostname { get; set; } = string.Empty;
 
     /// <summary>
     ///     端口
     /// </summary>
-    public ushort Port { get; set; }
+    public virtual ushort Port { get; set; }
 
     /// <summary>
     ///     倍率
@@ -67,38 +73,44 @@ public abstract class Server : ICloneable
     ///     测试延迟
     /// </summary>
     /// <returns>延迟</returns>
-    public async Task<int> PingAsync()
+    public virtual async Task<int> PingAsync()
     {
         try
         {
             var destination = await DnsUtils.LookupAsync(Hostname);
             if (destination == null)
-                return Delay = -2;
-
-            var list = new Task<int>[3];
-            for (var i = 0; i < 3; i++)
             {
-                Task<int> PingCoreAsync()
-                {
-                    try
-                    {
-                        return Global.Settings.ServerTCPing ? Utils.Utils.TCPingAsync(destination, Port) : Utils.Utils.ICMPingAsync(destination);
-                    }
-                    catch (Exception)
-                    {
-                        return Task.FromResult(-4);
-                    }
-                }
-
-                list[i] = PingCoreAsync();
+                LossPercent = 100;
+                return Delay = -2;
             }
 
-            var resTask = await Task.WhenAny(list[0], list[1], list[2]);
+            var list = new Task<int>[5];
+            Task<int> PingCoreAsync()
+            {
+                try
+                {
+                    return Global.Settings.ServerTCPing ? Utils.Utils.TCPingAsync(destination, Port) : Utils.Utils.ICMPingAsync(destination);
+                }
+                catch (Exception)
+                {
+                    return Task.FromResult(-4);
+                }
+            }
 
-            return Delay = await resTask;
+            for (var i = 0; i < list.Length; i++)
+                list[i] = PingCoreAsync();
+
+            var results = await Task.WhenAll(list);
+            var successful = results.Where(result => result >= 0).OrderBy(result => result).ToArray();
+            LossPercent = (results.Length - successful.Length) * 100 / results.Length;
+
+            // Use the median of successful probes so a single unusually fast or slow reply
+            // does not dominate the value shown in the server list.
+            return Delay = successful.Length == 0 ? -1 : successful[successful.Length / 2];
         }
         catch (Exception)
         {
+            LossPercent = 100;
             return Delay = -4;
         }
     }

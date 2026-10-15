@@ -21,6 +21,7 @@ namespace Netch.Forms;
 [Fody.ConfigureAwait(true)]
 public partial class MainForm : Form
 {
+    private readonly ToolTip _networkMetricsToolTip = new();
     #region Start
 
     private readonly Dictionary<string, object> _mainFormText = new();
@@ -31,6 +32,8 @@ public partial class MainForm : Form
     {
         InitializeComponent();
         NotifyIcon.Icon = Icon = Resources.icon;
+        _networkMetricsToolTip.SetToolTip(ServerComboBox,
+            "Latency and loss are measured by probing the selected proxy server. They are not game-protocol packet-loss measurements.");
 
         AddAddServerToolStripMenuItems();
 
@@ -103,8 +106,8 @@ public partial class MainForm : Form
 
     private void RecordSize()
     {
-        _numberBoxWidth = ServerComboBox.Width / 10;
-        _numberBoxX = _numberBoxWidth * 9;
+        _numberBoxWidth = ServerComboBox.Width / 3;
+        _numberBoxX = ServerComboBox.Width - _numberBoxWidth;
         _numberBoxWrap = _numberBoxWidth / 30;
 
         _configurationGroupBoxHeight = ConfigurationGroupBox.Height;
@@ -567,7 +570,7 @@ public partial class MainForm : Form
         {
             while (State == State.Started)
             {
-                if (Global.Settings.StartedPingInterval >= 0)
+                if (Global.Settings.StartedPingInterval > 0)
                 {
                     await server.PingAsync();
                     ServerComboBox.Refresh();
@@ -582,6 +585,48 @@ public partial class MainForm : Form
         }
 
         StartedPingAsync().Forget();
+        if (!string.IsNullOrWhiteSpace(mode.NetworkProbeTarget))
+            GameNetworkProbeAsync(mode).Forget();
+    }
+
+    private async Task GameNetworkProbeAsync(Mode mode)
+    {
+        var samples = new Queue<int>();
+        var target = mode.NetworkProbeTarget.Trim();
+        GameNetworkStatusLabel.Visible = true;
+        GameNetworkStatusLabel.ToolTipText = $"ICMP probes to {target}. This indicates target reachability and probe loss; it is not a measurement of encrypted game packets.";
+
+        while (State == State.Started && ReferenceEquals(MainController.Mode, mode))
+        {
+            var sample = -1;
+            try
+            {
+                using var ping = new System.Net.NetworkInformation.Ping();
+                var reply = await ping.SendPingAsync(target, 1000);
+                if (reply.Status == System.Net.NetworkInformation.IPStatus.Success)
+                    sample = Convert.ToInt32(reply.RoundtripTime);
+            }
+            catch (Exception exception) when (exception is ArgumentException or System.Net.NetworkInformation.PingException or InvalidOperationException)
+            {
+                Log.Debug(exception, "Game network probe failed for {Target}", target);
+            }
+
+            samples.Enqueue(sample);
+            while (samples.Count > 20)
+                samples.Dequeue();
+
+            var successful = samples.Where(value => value >= 0).ToArray();
+            var loss = (samples.Count - successful.Length) * 100 / samples.Count;
+            var average = successful.Length == 0 ? -1 : Convert.ToInt32(successful.Average());
+            GameNetworkStatusLabel.Text = average < 0
+                ? $"Game target: -- / {loss}% probe loss"
+                : $"Game target: {average}ms / {loss}% probe loss";
+
+            await Task.Delay(1000);
+        }
+
+        GameNetworkStatusLabel.Visible = false;
+        GameNetworkStatusLabel.Text = string.Empty;
     }
 
     #endregion
@@ -806,7 +851,16 @@ public partial class MainForm : Form
             return;
         }
 
-        ModeService.Delete((Mode)ModeComboBox.SelectedItem);
+        try
+        {
+            ModeService.Delete((Mode)ModeComboBox.SelectedItem);
+        }
+        catch (InvalidOperationException exception)
+        {
+            MessageBoxX.Show(i18N.Translate(exception.Message), LogLevel.WARNING);
+            return;
+        }
+
         SelectLastMode();
     }
 
@@ -1112,9 +1166,10 @@ public partial class MainForm : Form
     private void ConnectivityStatusVisible(bool visible)
     {
         if (!visible)
-            HttpStatusLabel.Text = NatTypeStatusLabel.Text = "";
+            HttpStatusLabel.Text = NatTypeStatusLabel.Text = GameNetworkStatusLabel.Text = "";
 
         HttpStatusLabel.Visible = NatTypeStatusLabel.Visible = NatTypeStatusLightLabel.Visible = visible;
+        GameNetworkStatusLabel.Visible = visible && !string.IsNullOrWhiteSpace(MainController.Mode?.NetworkProbeTarget);
     }
 
     /// <summary>
@@ -1172,6 +1227,10 @@ public partial class MainForm : Form
             {
                 var country = await Utils.Utils.GetCityCodeAsync(res.PublicEnd);
 
+                NatTypeStatusLabel.ToolTipText = $"Measured through the active proxy; this reports the proxy egress NAT.\n" +
+                    $"Mapping: {res.MappingBehavior ?? "Unknown"}\nFiltering: {res.FilteringBehavior ?? "Unknown"}\n" +
+                    $"Binding: {res.BindingTestResult ?? "Unknown"}\nLocal: {res.LocalEnd ?? "Unknown"}\nPublic: {res.PublicEnd}";
+
                 UpdateNatTypeStatusLabelText(res.Result, country);
                 if (int.TryParse(res.Result, out var natType))
                     UpdateNatTypeLight(natType);
@@ -1180,9 +1239,21 @@ public partial class MainForm : Form
             }
             else
             {
+                NatTypeStatusLabel.ToolTipText = "NAT discovery did not receive a usable STUN binding response through the active proxy.";
                 UpdateNatTypeStatusLabelText(res.Result ?? "Error");
                 NatTypeStatusLightLabel.Visible = false;
             }
+        }
+        catch (OperationCanceledException) when (_discoveryNatCts?.IsCancellationRequested == true)
+        {
+            // The user stopped the NAT probe or the active connection was stopped.
+        }
+        catch (Exception exception)
+        {
+            Log.Warning(exception, "NAT type discovery failed");
+            NatTypeStatusLabel.ToolTipText = "The NAT test failed. Check the STUN server settings and the proxy's UDP support.";
+            UpdateNatTypeStatusLabelText("Error");
+            NatTypeStatusLightLabel.Visible = false;
         }
         finally
         {
@@ -1447,8 +1518,9 @@ public partial class MainForm : Form
                 e.Graphics.FillRectangle(numBoxBackBrush, _numberBoxX, e.Bounds.Y, _numberBoxWidth, e.Bounds.Height);
 
                 // 绘制延迟字符串
+                var latencyText = item.Delay < 0 ? "--" : $"{item.Delay}ms {item.LossPercent}%";
                 TextRenderer.DrawText(e.Graphics,
-                    item.Delay.ToString(),
+                    latencyText,
                     cbx.Font,
                     new Point(_numberBoxX + _numberBoxWrap, e.Bounds.Y),
                     Color.Black,

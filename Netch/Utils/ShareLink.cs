@@ -67,7 +67,7 @@ public static class ShareLink
 
         if (text.StartsWith("tg://socks?") || text.StartsWith("https://t.me/socks?"))
         {
-            list.AddRange(ServerHelper.GetUtilByTypeName("Socks5").ParseUri(text));
+            list.AddRange(ServerHelper.GetUtilByTypeName("SOCKS").ParseUri(text));
         }
         else if (text.StartsWith("Netch://"))
         {
@@ -120,6 +120,7 @@ public static class ShareLink
     public static string GetNetchLink(Server s)
     {
         var jsonSerializerOptions = Global.NewCustomJsonSerializerOptions();
+        jsonSerializerOptions.Converters.Add(new ServerConverterWithTypeDiscriminator());
         jsonSerializerOptions.WriteIndented = false;
         return "Netch://" + URLSafeBase64Encode(JsonSerializer.Serialize(s, jsonSerializerOptions));
     }

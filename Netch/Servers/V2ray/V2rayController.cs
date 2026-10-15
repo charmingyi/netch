@@ -28,7 +28,10 @@ public class V2rayController : Guard, IServerController
     {
         await using (var fileStream = new FileStream(Constants.TempConfig, FileMode.Create, FileAccess.Write, FileShare.Read))
         {
-            await JsonSerializer.SerializeAsync(fileStream, await V2rayConfigUtils.GenerateClientConfigAsync(s), Global.NewCustomJsonSerializerOptions());
+            var config = s is ProxyChainServer chain
+                ? await V2rayConfigUtils.GenerateClientConfigAsync(chain.Nodes)
+                : await V2rayConfigUtils.GenerateClientConfigAsync(s);
+            await JsonSerializer.SerializeAsync(fileStream, config, Global.NewCustomJsonSerializerOptions());
         }
 
         await StartGuardAsync("run -c ..\\data\\last.json");

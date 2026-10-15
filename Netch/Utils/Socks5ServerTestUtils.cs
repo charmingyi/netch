@@ -55,7 +55,10 @@ public static class Socks5ServerTestUtils
         {
             Result = result,
             LocalEnd = res.LocalEndPoint?.ToString(),
-            PublicEnd = res.PublicEndPoint?.ToString()
+            PublicEnd = res.PublicEndPoint?.ToString(),
+            MappingBehavior = res.MappingBehavior.ToString(),
+            FilteringBehavior = res.FilteringBehavior.ToString(),
+            BindingTestResult = res.BindingTestResult.ToString()
         };
     }
 

@@ -41,6 +41,8 @@ namespace Netch.Forms.ModeForms
             this.ControlButton = new System.Windows.Forms.Button();
             this.OptionsGroupBox = new System.Windows.Forms.GroupBox();
             this.ModeSpecificOptionsLabel = new System.Windows.Forms.Label();
+            this.HealthCheckTargetLabel = new System.Windows.Forms.Label();
+            this.HealthCheckTargetTextBox = new System.Windows.Forms.TextBox();
             this.HandleTCPCheckBox = new Netch.Forms.SyncGlobalCheckBox();
             this.HandleUDPCheckBox = new Netch.Forms.SyncGlobalCheckBox();
             this.HandleDNSCheckBox = new Netch.Forms.SyncGlobalCheckBox();
@@ -173,6 +175,8 @@ namespace Netch.Forms.ModeForms
             // 
             this.OptionsGroupBox.Anchor = System.Windows.Forms.AnchorStyles.Top;
             this.OptionsGroupBox.Controls.Add(this.ModeSpecificOptionsLabel);
+            this.OptionsGroupBox.Controls.Add(this.HealthCheckTargetLabel);
+            this.OptionsGroupBox.Controls.Add(this.HealthCheckTargetTextBox);
             this.OptionsGroupBox.Controls.Add(this.HandleTCPCheckBox);
             this.OptionsGroupBox.Controls.Add(this.HandleUDPCheckBox);
             this.OptionsGroupBox.Controls.Add(this.HandleDNSCheckBox);
@@ -200,6 +204,22 @@ namespace Netch.Forms.ModeForms
             this.ModeSpecificOptionsLabel.Size = new System.Drawing.Size(138, 17);
             this.ModeSpecificOptionsLabel.TabIndex = 13;
             this.ModeSpecificOptionsLabel.Text = "Mode specific options";
+            //
+            // HealthCheckTargetLabel
+            //
+            this.HealthCheckTargetLabel.AutoSize = true;
+            this.HealthCheckTargetLabel.Location = new System.Drawing.Point(720, 56);
+            this.HealthCheckTargetLabel.Name = "HealthCheckTargetLabel";
+            this.HealthCheckTargetLabel.Size = new System.Drawing.Size(145, 17);
+            this.HealthCheckTargetLabel.TabIndex = 14;
+            this.HealthCheckTargetLabel.Text = "Game server probe host";
+            //
+            // HealthCheckTargetTextBox
+            //
+            this.HealthCheckTargetTextBox.Location = new System.Drawing.Point(720, 80);
+            this.HealthCheckTargetTextBox.Name = "HealthCheckTargetTextBox";
+            this.HealthCheckTargetTextBox.Size = new System.Drawing.Size(165, 23);
+            this.HealthCheckTargetTextBox.TabIndex = 15;
             // 
             // HandleTCPCheckBox
             // 
@@ -639,5 +659,7 @@ namespace Netch.Forms.ModeForms
         private TableLayoutPanel BypassContentTableLayoutPanel;
         private SyncGlobalCheckBox HandleChildProcCheckBox;
         private Label ModeSpecificOptionsLabel;
+        private Label HealthCheckTargetLabel;
+        private TextBox HealthCheckTargetTextBox;
     }
 }
